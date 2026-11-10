@@ -3,12 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>图片去水印 · LaMa AI · 元数据清除 · 本地验证</title>
+<title>图片去水印 · 元数据清除 · 本地验证</title>
 <style>
-  :root { --bg:#0f1115; --panel:#181c23; --border:#2a3039; --text:#e6e9ef; --muted:#8b93a1; --accent:#4c8dff; --ok:#3fb950; --warn:#d29922; --bad:#f85149; }
-  *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
-  header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-  header h1{font-size:18px;margin:0;font-weight:600} header span{font-size:13px;color:var(--muted)}
+  :root{--bg:#0f1115;--panel:#181c23;--border:#2a3039;--text:#e6e9ef;--muted:#8b93a1;--accent:#4c8dff;--ok:#3fb950;--warn:#d29922;--bad:#f85149}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+  #boot{position:fixed;top:0;left:0;right:0;z-index:999;padding:8px 16px;font-size:12.5px;background:#1b2a1e;color:var(--ok);border-bottom:1px solid #2d4a33;display:flex;gap:16px;flex-wrap:wrap}
+  #boot.error{background:#2a1b1b;color:var(--bad);border-bottom-color:#4a2d2d}
+  #boot .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:6px}
+  header{padding:56px 24px 20px;border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0;font-weight:600}
+  header span{font-size:13px;color:var(--muted)}
   main{max-width:1100px;margin:0 auto;padding:24px;display:grid;gap:20px}
   .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px}
   .card h2{font-size:15px;margin:0 0 14px;font-weight:600}
@@ -20,7 +25,7 @@
   button.secondary{background:#2a3039;color:var(--text)}
   button.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
   button.ghost.active{border-color:var(--accent);color:var(--accent)}
-  #canvasWrap{position:relative;display:inline-block;max-width:100%;margin-top:12px;border-radius:8px;overflow:hidden;background:#000}
+  #canvasWrap{position:relative;display:inline-block;max-width:100%;margin-top:12px;border-radius:8px;overflow:hidden;background:#000;min-height:120px}
   #canvas{display:block;max-width:100%;height:auto;cursor:crosshair;touch-action:none}
   #canvasWrap.empty::after{content:"选择图片 / 输入 URL 后在此标记水印区域";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;pointer-events:none}
   .brush-row{display:flex;gap:16px;align-items:center;margin-top:12px;font-size:13px;color:var(--muted);flex-wrap:wrap}
@@ -34,35 +39,38 @@
   .badge-present{background:rgba(248,81,73,.15);color:var(--bad)}
   .badge-empty{background:rgba(139,147,161,.12);color:var(--muted)}
   .badge-warn{background:rgba(210,153,34,.15);color:var(--warn)}
-  .status{font-size:13px;color:var(--muted);min-height:20px}.status.ok{color:var(--ok)}.status.err{color:var(--bad)}
+  .status{font-size:13px;color:var(--muted);min-height:20px}
+  .status.ok{color:var(--ok)}.status.err{color:var(--bad)}
   .hint{font-size:12.5px;color:var(--muted);margin-top:10px;padding:10px 12px;border-left:2px solid var(--border)}
   .progress-wrap{height:6px;background:#0f1115;border-radius:3px;overflow:hidden;margin-top:10px;display:none}
   .progress-bar{height:100%;width:0;background:var(--accent);transition:width .3s}
-  @media(max-width:640px){.report-item{grid-template-columns:1fr;gap:2px}main{padding:16px}}
+  @media(max-width:640px){.report-item{grid-template-columns:1fr;gap:2px}main{padding:16px}header{padding-top:80px}}
 </style>
 </head>
 <body>
-<header>
-  <h1>图片去水印 · LaMa AI · 元数据清除 · 本地验证</h1>
-  <span>全程离线处理 · 支持本地文件与 URL 加载</span>
-</header>
-<main>
 
+<div id="boot"><span><span class="dot"></span>工具已启动</span><span id="bootExif">EXIF 解析器：待加载</span><span id="bootOrt">LaMa 引擎：待加载</span></div>
+
+<header>
+  <h1>图片去水印 · 元数据清除 · 本地验证</h1>
+  <span>核心功能零依赖 · 图片不上传</span>
+</header>
+
+<main>
   <section class="card">
     <h2>1. 加载图片</h2>
     <div class="row">
-      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp">
+      <input type="file" id="fileInput" accept="image/*">
     </div>
     <div class="row" style="margin-top:10px">
-      <input type="text" id="urlInput" placeholder="或粘贴图片 URL（https://...）">
+      <input type="text" id="urlInput" placeholder="或粘贴图片 URL（https://...，需目标服务器允许 CORS）">
       <button id="urlLoadBtn">从 URL 加载</button>
     </div>
     <div class="status" id="loadStatus"></div>
-    <div class="hint">URL 加载依赖目标服务器允许 CORS。如果服务器未设置 <code>Access-Control-Allow-Origin</code>，Canvas 会被“污染”，像素级操作和导出都会被浏览器阻止，这是无法绕过的安全限制[reference:2]。</div>
   </section>
 
   <section class="card">
-    <h2>2. 标记水印区域</h2>
+    <h2>2. 标记水印区域并修复</h2>
     <div class="row">
       <button id="brushBtn" class="ghost active" disabled>🖌️ 画笔</button>
       <button id="eraseBtn" class="ghost" disabled>🧽 擦除</button>
@@ -75,14 +83,12 @@
     </div>
     <div id="canvasWrap" class="empty"><canvas id="canvas"></canvas></div>
     <div class="row" style="margin-top:14px">
-      <button id="lamaBtn" disabled>LaMa AI 修复（高质量）</button>
-      <button id="fastBtn" class="secondary" disabled>快速采样修复</button>
+      <button id="fastBtn" disabled>快速采样修复（无需模型）</button>
+      <button id="lamaBtn" class="secondary" disabled>LaMa AI 修复（高质量，需下载模型）</button>
     </div>
     <div class="progress-wrap" id="progressWrap"><div class="progress-bar" id="progressBar"></div></div>
     <div class="status" id="inpaintStatus"></div>
-    <div class="hint">
-      LaMa 模型约 110 MB（fp16），首次使用从 Hugging Face CDN 下载并缓存到浏览器。大图会自动分块推理，避免内存溢出[reference:3]。WebGPU 可用时优先尝试，不可用时自动回退 WASM。快速采样修复不加载模型，适合简单背景。
-    </div>
+    <div class="hint">快速采样修复是确定性算法，不加载任何外部资源，永远可用。LaMa 是可选增强：首次点击才下载 ONNX 模型，失败不影响其他功能。</div>
   </section>
 
   <section class="card">
@@ -94,403 +100,628 @@
     <div class="status" id="processStatus"></div>
     <div class="report" id="report"><div style="color:var(--muted);font-size:13px;padding:12px 0">加载图片后显示原图敏感字段；导出后重新检测并逐项对比。</div></div>
     <div class="row" style="margin-top:12px" id="downloadRow" hidden>
-      <a id="downloadLink" download style="text-decoration:none"><button id="downloadBtn">下载处理后的 PNG</button></a>
+      <a id="downloadLink" download style="text-decoration:none"><button>下载处理后的 PNG</button></a>
     </div>
   </section>
-
 </main>
 
-<script type="module">
-import ExifReader from 'https://cdn.jsdelivr.net/npm/exifreader@5.0.0/dist/exif-reader.min.js';
-import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.webgpu.min.js';
+<script>
+(function(){
+'use strict';
 
-ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/';
+/* ========== 全局错误显示（不再静默失败） ========== */
+const boot = document.getElementById('boot');
+const bootExif = document.getElementById('bootExif');
+const bootOrt = document.getElementById('bootOrt');
+function showBootError(msg){
+  boot.classList.add('error');
+  boot.firstElementChild.innerHTML = '<span class="dot"></span>错误：' + msg;
+  console.error(msg);
+}
+window.addEventListener('error', e => showBootError(e.message || '脚本错误'));
+window.addEventListener('unhandledrejection', e => showBootError((e.reason && e.reason.message) || String(e.reason)));
 
-// ============ 状态 ============
+/* ========== DOM ========== */
+const $ = s => document.querySelector(s);
+const fileInput = $('#fileInput'), urlInput = $('#urlInput'), urlLoadBtn = $('#urlLoadBtn');
+const canvas = $('#canvas'), canvasWrap = $('#canvasWrap');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const brushBtn = $('#brushBtn'), eraseBtn = $('#eraseBtn'), clearMaskBtn = $('#clearMaskBtn'), undoBtn = $('#undoBtn');
+const brushSize = $('#brushSize'), brushLabel = $('#brushLabel');
+const fastBtn = $('#fastBtn'), lamaBtn = $('#lamaBtn');
+const progressWrap = $('#progressWrap'), progressBar = $('#progressBar');
+const processBtn = $('#processBtn'), verifyBtn = $('#verifyBtn');
+const loadStatus = $('#loadStatus'), inpaintStatus = $('#inpaintStatus'), processStatus = $('#processStatus');
+const reportEl = $('#report'), downloadRow = $('#downloadRow'), downloadLink = $('#downloadLink');
+
+const setStatus = (el, t, c = '') => { el.textContent = t; el.className = 'status ' + c; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ========== 状态 ========== */
 const state = {
-  file:null, img:null, width:0, height:0,
-  maskCanvas:null, maskCtx:null,
-  strokeHistory:[], drawing:false, mode:'brush', brushSize:20,
-  lamaSession:null, lamaLoading:false,
-  processedBlob:null, processedFile:null, outputUrl:null,
-  originalSensitive:null, verifyReport:null,
+  file: null, img: null, width: 0, height: 0,
+  maskCanvas: null, maskCtx: null,
+  strokeHistory: [], drawing: false, mode: 'brush', brushSize: 20,
+  processedBlob: null, processedFile: null, outputUrl: null,
+  originalSensitive: null, verifyReport: null,
+  tainted: false,
 };
 
-// ============ DOM ============
-const $ = s => document.querySelector(s);
-const fileInput=$('#fileInput'), urlInput=$('#urlInput'), urlLoadBtn=$('#urlLoadBtn');
-const canvas=$('#canvas'), canvasWrap=$('#canvasWrap');
-const ctx=canvas.getContext('2d',{willReadFrequently:true});
-const brushBtn=$('#brushBtn'), eraseBtn=$('#eraseBtn'), clearMaskBtn=$('#clearMaskBtn'), undoBtn=$('#undoBtn');
-const brushSize=$('#brushSize'), brushLabel=$('#brushLabel');
-const lamaBtn=$('#lamaBtn'), fastBtn=$('#fastBtn');
-const progressWrap=$('#progressWrap'), progressBar=$('#progressBar');
-const processBtn=$('#processBtn'), verifyBtn=$('#verifyBtn');
-const loadStatus=$('#loadStatus'), inpaintStatus=$('#inpaintStatus'), processStatus=$('#processStatus');
-const reportEl=$('#report'), downloadRow=$('#downloadRow'), downloadLink=$('#downloadLink');
-
-const setStatus=(el,t,c='')=>{el.textContent=t;el.className='status '+c};
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const escapeHtml=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-
-// ============ 图片加载（本地 + URL） ============
-fileInput.addEventListener('change', e=>{ if(e.target.files?.[0]) loadFromFile(e.target.files[0]); });
-urlLoadBtn.addEventListener('click', async ()=>{
-  const url=urlInput.value.trim();
-  if(!url) return;
-  await loadFromUrl(url);
-});
-
-async function loadFromFile(file){
-  resetAll();
-  state.file=file;
-  setStatus(loadStatus,'正在解码本地图片…');
-  try{
-    const bmp=await createImageBitmap(file).catch(()=>loadImageElement(URL.createObjectURL(file), false));
-    await setupImage(bmp, file.name, file.size);
-    await analyzeOriginal(file);
-  }catch(err){ setStatus(loadStatus,'解码失败：'+err.message,'err'); }
-}
-
-async function loadFromUrl(url){
-  resetAll();
-  setStatus(loadStatus,'正在通过 URL 加载（跨域模式）…');
-  try{
-    // 先尝试 fetch 拿 blob，避免 <img crossOrigin> 在某些服务器上的静默失败
-    let blob;
-    try{
-      const resp=await fetch(url,{mode:'cors'});
-      if(!resp.ok) throw new Error('HTTP '+resp.status);
-      blob=await resp.blob();
-    }catch(fetchErr){
-      // fetch 失败时回退到 <img crossOrigin="anonymous">
-      const img=await loadImageElement(url, true);
-      const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
-      const cx=c.getContext('2d'); cx.drawImage(img,0,0);
-      blob=await new Promise(res=>c.toBlob(res,'image/png'));
-      if(!blob) throw new Error('无法从 URL 提取像素');
-    }
-    if(!blob.type.startsWith('image/')) throw new Error('URL 返回的不是图片');
-    const file=new File([blob], (url.split('/').pop()||'remote_image').split('?')[0], {type:blob.type});
-    state.file=file;
-    const bmp=await createImageBitmap(blob).catch(()=>loadImageElement(URL.createObjectURL(blob), false));
-    await setupImage(bmp, file.name, file.size);
-    await analyzeOriginal(file);
-    setStatus(loadStatus,`URL 加载成功：${state.width}×${state.height} · ${(file.size/1024).toFixed(0)} KB`,'ok');
-  }catch(err){
-    console.error(err);
-    setStatus(loadStatus,'URL 加载失败：'+err.message+'。目标服务器可能不允许 CORS，或图片地址不可访问。','err');
-  }
-}
-
-function loadImageElement(src, cors){
-  return new Promise((res,rej)=>{
-    const img=new Image();
-    if(cors) img.crossOrigin='anonymous';
-    img.onload=()=>res(img);
-    img.onerror=()=>rej(new Error('图片加载失败'+(cors?'（CORS 被拒绝）':'')));
-    img.src=src;
+/* ========== 动态加载脚本（UMD，避免 ESM 顶层 import 拖垮整页） ========== */
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => res();
+    s.onerror = () => rej(new Error('脚本加载失败：' + src));
+    document.head.appendChild(s);
   });
 }
 
-async function setupImage(bmp, name, size){
-  state.img=bmp;
-  state.width=bmp.width||bmp.naturalWidth;
-  state.height=bmp.height||bmp.naturalHeight;
-  canvas.width=state.width; canvas.height=state.height;
-  ctx.clearRect(0,0,state.width,state.height);
-  ctx.drawImage(bmp,0,0);
+let exifPromise = null;
+function loadExif() {
+  if (window.ExifReader) return Promise.resolve(window.ExifReader);
+  if (!exifPromise) {
+    exifPromise = loadScript('https://cdn.jsdelivr.net/npm/exifreader@5.0.0/dist/exif-reader.min.js')
+      .then(() => {
+        const ER = window.ExifReader;
+        if (!ER) throw new Error('ExifReader 未挂载到 window');
+        bootExif.textContent = 'EXIF 解析器：已就绪';
+        return ER;
+      })
+      .catch(err => { bootExif.textContent = 'EXIF 解析器：不可用（' + err.message + '）'; throw err; });
+  }
+  return exifPromise;
+}
+
+let ortPromise = null;
+function loadOrt() {
+  if (window.ort) return Promise.resolve(window.ort);
+  if (!ortPromise) {
+    bootOrt.textContent = 'LaMa 引擎：加载中…';
+    ortPromise = loadScript('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.min.js')
+      .then(() => {
+        const ort = window.ort;
+        if (!ort) throw new Error('ORT 未挂载到 window');
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/';
+        ort.env.wasm.numThreads = 1; // GitHub Pages 无 COOP/COEP，禁用多线程避免 SharedArrayBuffer 报错
+        bootOrt.textContent = 'LaMa 引擎：已就绪';
+        return ort;
+      })
+      .catch(err => { bootOrt.textContent = 'LaMa 引擎：不可用（' + err.message + '）'; throw err; });
+  }
+  return ortPromise;
+}
+
+/* ========== 图片加载 ========== */
+fileInput.addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) loadFromFile(f);
+});
+
+urlLoadBtn.addEventListener('click', () => {
+  const url = urlInput.value.trim();
+  if (!url) return setStatus(loadStatus, '请输入图片 URL', 'err');
+  loadFromUrl(url);
+});
+
+async function loadFromFile(file) {
+  resetAll();
+  state.file = file;
+  setStatus(loadStatus, '正在解码本地图片…');
+  try {
+    let bmp;
+    try { bmp = await createImageBitmap(file); }
+    catch { bmp = await loadImageElement(URL.createObjectURL(file), false); }
+    await setupImage(bmp, file.name, file.size);
+    await analyzeOriginal(file);
+  } catch (err) {
+    console.error(err);
+    setStatus(loadStatus, '解码失败：' + err.message, 'err');
+  }
+}
+
+async function loadFromUrl(url) {
+  resetAll();
+  setStatus(loadStatus, '正在通过 URL 加载（CORS 模式）…');
+  try {
+    let blob;
+    try {
+      const resp = await fetch(url, { mode: 'cors' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      blob = await resp.blob();
+    } catch (fetchErr) {
+      // fetch 失败：回退 <img crossOrigin>
+      const img = await loadImageElement(url, true);
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      blob = await new Promise(r => c.toBlob(r, 'image/png'));
+      if (!blob) throw new Error('无法从 URL 提取像素');
+    }
+    if (!blob.type.startsWith('image/')) throw new Error('URL 返回的不是图片');
+    const name = (url.split('/').pop() || 'remote_image').split('?')[0];
+    const file = new File([blob], name, { type: blob.type });
+    state.file = file;
+    let bmp;
+    try { bmp = await createImageBitmap(blob); }
+    catch { bmp = await loadImageElement(URL.createObjectURL(blob), false); }
+    await setupImage(bmp, file.name, file.size);
+    await analyzeOriginal(file);
+    setStatus(loadStatus, 'URL 加载成功：' + state.width + '×' + state.height + ' · ' + (file.size / 1024).toFixed(0) + ' KB', 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus(loadStatus, 'URL 加载失败：' + err.message + '。目标服务器可能不允许 CORS，或地址不可访问。', 'err');
+  }
+}
+
+function loadImageElement(src, cors) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    if (cors) img.crossOrigin = 'anonymous';
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error('图片加载失败' + (cors ? '（CORS 被拒绝）' : '')));
+    img.src = src;
+  });
+}
+
+async function setupImage(bmp, name, size) {
+  state.img = bmp;
+  state.width = bmp.width || bmp.naturalWidth;
+  state.height = bmp.height || bmp.naturalHeight;
+
+  canvas.width = state.width;
+  canvas.height = state.height;
+  ctx.clearRect(0, 0, state.width, state.height);
+  ctx.drawImage(bmp, 0, 0);
   canvasWrap.classList.remove('empty');
 
-  state.maskCanvas=document.createElement('canvas');
-  state.maskCanvas.width=state.width; state.maskCanvas.height=state.height;
-  state.maskCtx=state.maskCanvas.getContext('2d',{willReadFrequently:true});
-  state.maskCtx.fillStyle='#000'; state.maskCtx.fillRect(0,0,state.width,state.height);
+  // 污染检测：跨域图片没有 CORS 头时，getImageData 会抛 SecurityError
+  state.tainted = false;
+  try { ctx.getImageData(0, 0, 1, 1); }
+  catch (e) { state.tainted = true; }
 
-  [brushBtn,eraseBtn,clearMaskBtn,brushSize,lamaBtn,fastBtn,processBtn,verifyBtn].forEach(el=>el.disabled=false);
-  setStatus(loadStatus,`已加载：${state.width} × ${state.height} · ${(size/1024).toFixed(0)} KB`,'ok');
+  state.maskCanvas = document.createElement('canvas');
+  state.maskCanvas.width = state.width;
+  state.maskCanvas.height = state.height;
+  state.maskCtx = state.maskCanvas.getContext('2d', { willReadFrequently: true });
+  state.maskCtx.fillStyle = '#000';
+  state.maskCtx.fillRect(0, 0, state.width, state.height);
+
+  [brushBtn, eraseBtn, clearMaskBtn, brushSize, fastBtn, lamaBtn, processBtn, verifyBtn].forEach(el => el.disabled = false);
+
+  if (state.tainted) {
+    setStatus(loadStatus, '图片已加载，但 Canvas 被跨域污染：无法读取像素、无法修复、无法导出。请使用允许 CORS 的图片源或下载后从本地选择。', 'err');
+    [fastBtn, lamaBtn, processBtn, verifyBtn].forEach(el => el.disabled = true);
+  } else {
+    setStatus(loadStatus, '已加载：' + state.width + ' × ' + state.height + ' · ' + (size / 1024).toFixed(0) + ' KB', 'ok');
+  }
 }
 
-function resetAll(){
-  if(state.outputUrl) URL.revokeObjectURL(state.outputUrl);
-  Object.assign(state,{file:null,img:null,width:0,height:0,maskCanvas:null,maskCtx:null,strokeHistory:[],drawing:false,processedBlob:null,processedFile:null,outputUrl:null,originalSensitive:null,verifyReport:null});
-  ctx.clearRect(0,0,canvas.width,canvas.height); canvas.width=0; canvas.height=0;
+function resetAll() {
+  if (state.outputUrl) URL.revokeObjectURL(state.outputUrl);
+  Object.assign(state, {
+    file: null, img: null, width: 0, height: 0,
+    maskCanvas: null, maskCtx: null, strokeHistory: [], drawing: false,
+    processedBlob: null, processedFile: null, outputUrl: null,
+    originalSensitive: null, verifyReport: null, tainted: false,
+  });
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  canvas.width = 0; canvas.height = 0;
   canvasWrap.classList.add('empty');
-  [brushBtn,eraseBtn,clearMaskBtn,brushSize,lamaBtn,fastBtn,undoBtn,processBtn,verifyBtn].forEach(el=>el.disabled=true);
-  downloadRow.hidden=true;
-  reportEl.innerHTML='<div style="color:var(--muted);font-size:13px;padding:12px 0">加载图片后显示原图敏感字段；导出后重新检测并逐项对比。</div>';
-  setStatus(loadStatus,''); setStatus(inpaintStatus,''); setStatus(processStatus,'');
-  progressWrap.style.display='none';
+  [brushBtn, eraseBtn, clearMaskBtn, brushSize, fastBtn, lamaBtn, undoBtn, processBtn, verifyBtn].forEach(el => el.disabled = true);
+  downloadRow.hidden = true;
+  reportEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">加载图片后显示原图敏感字段；导出后重新检测并逐项对比。</div>';
+  setStatus(loadStatus, ''); setStatus(inpaintStatus, ''); setStatus(processStatus, '');
+  progressWrap.style.display = 'none';
+  progressBar.style.width = '0%';
 }
 
-// ============ 元数据 ============
-const SENSITIVE=['Make','Model','Software','DateTimeOriginal','CreateDate','ModifyDate','GPSLatitude','GPSLongitude','GPSAltitude','LensModel','SerialNumber','ImageDescription','Artist','Copyright'];
-function extractSensitive(tags){
-  if(!tags) return {};
-  const out={};
-  for(const k of SENSITIVE){ if(tags[k]!=null&&tags[k]!=='') out[k]=tags[k]; }
-  if(tags.latitude!=null&&tags.longitude!=null) out['GPS 坐标']=`${tags.latitude}, ${tags.longitude}`;
+/* ========== 元数据解析 ========== */
+const SENSITIVE = ['Make','Model','Software','DateTimeOriginal','CreateDate','ModifyDate','GPSLatitude','GPSLongitude','GPSAltitude','LensModel','SerialNumber','ImageDescription','Artist','Copyright'];
+
+function extractSensitive(tags) {
+  if (!tags) return {};
+  const out = {};
+  for (const k of SENSITIVE) {
+    if (tags[k] != null && tags[k] !== '') out[k] = tags[k];
+  }
+  if (tags.latitude != null && tags.longitude != null) out['GPS 坐标'] = tags.latitude + ', ' + tags.longitude;
   return out;
 }
-async function parseFile(file){
-  try{ return await ExifReader.load(file); }catch(e){ console.warn(e); return {}; }
+
+async function parseFile(file) {
+  try {
+    const ExifReader = await loadExif();
+    return await ExifReader.load(file);
+  } catch (e) {
+    console.warn('ExifReader 不可用', e);
+    return null;
+  }
 }
-async function analyzeOriginal(file){
-  state.originalSensitive=extractSensitive(await parseFile(file));
+
+async function analyzeOriginal(file) {
+  const tags = await parseFile(file);
+  if (tags === null) {
+    reportEl.innerHTML = '<div style="color:var(--warn);font-size:13px;padding:12px 0">EXIF 解析器加载失败，无法列出原图字段。但这不影响导出：Canvas 重绘为 PNG 后不会携带任何原始 EXIF。</div>';
+    return;
+  }
+  state.originalSensitive = extractSensitive(tags);
   renderReport('original');
 }
 
-// ============ 画笔 ============
-const setMode=m=>{state.mode=m;brushBtn.classList.toggle('active',m==='brush');eraseBtn.classList.toggle('active',m==='erase')};
-brushBtn.onclick=()=>setMode('brush'); eraseBtn.onclick=()=>setMode('erase');
-brushSize.oninput=()=>{state.brushSize=+brushSize.value;brushLabel.textContent=brushSize.value+' px'};
-clearMaskBtn.onclick=()=>{if(!state.maskCtx)return;state.maskCtx.fillStyle='#000';state.maskCtx.fillRect(0,0,state.width,state.height);state.strokeHistory.push({type:'clear'});undoBtn.disabled=false;redraw()};
-
-canvas.addEventListener('pointerdown',e=>{if(!state.maskCtx)return;state.drawing=true;canvas.setPointerCapture(e.pointerId);paintAt(e)});
-canvas.addEventListener('pointermove',e=>{if(state.drawing)paintAt(e)});
-canvas.addEventListener('pointerup',()=>state.drawing=false);
-canvas.addEventListener('pointercancel',()=>state.drawing=false);
-
-function getPoint(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left)*(state.width/r.width),y:(e.clientY-r.top)*(state.height/r.height)}}
-function paintAt(e){const p=getPoint(e);state.strokeHistory.push({x:p.x,y:p.y,size:state.brushSize,mode:state.mode});undoBtn.disabled=false;drawMaskDot(p.x,p.y,state.brushSize,state.mode);redraw()}
-function drawMaskDot(x,y,size,mode){const c=state.maskCtx;c.save();c.fillStyle=mode==='brush'?'#fff':'#000';c.beginPath();c.arc(x,y,size/2,0,Math.PI*2);c.fill();c.restore()}
-function redraw(){
-  if(!state.img)return;
-  ctx.clearRect(0,0,state.width,state.height); ctx.drawImage(state.img,0,0);
-  const md=state.maskCtx.getImageData(0,0,state.width,state.height).data;
-  const ov=ctx.getImageData(0,0,state.width,state.height); const od=ov.data;
-  for(let i=0;i<md.length;i+=4){if(md[i]>128){od[i]=255;od[i+1]=60;od[i+2]=60;od[i+3]=Math.max(od[i+3],110)}}
-  ctx.putImageData(ov,0,0);
-}
-undoBtn.onclick=()=>{
-  const last=state.strokeHistory.pop(); if(!last)return;
-  state.maskCtx.fillStyle='#000'; state.maskCtx.fillRect(0,0,state.width,state.height);
-  for(const s of state.strokeHistory){ if(s.type==='clear'){state.maskCtx.fillStyle='#000';state.maskCtx.fillRect(0,0,state.width,state.height)} else drawMaskDot(s.x,s.y,s.size,s.mode) }
-  redraw(); undoBtn.disabled=state.strokeHistory.length===0;
+/* ========== 画笔 ========== */
+const setMode = m => {
+  state.mode = m;
+  brushBtn.classList.toggle('active', m === 'brush');
+  eraseBtn.classList.toggle('active', m === 'erase');
+};
+brushBtn.onclick = () => setMode('brush');
+eraseBtn.onclick = () => setMode('erase');
+brushSize.oninput = () => { state.brushSize = +brushSize.value; brushLabel.textContent = brushSize.value + ' px'; };
+clearMaskBtn.onclick = () => {
+  if (!state.maskCtx) return;
+  state.maskCtx.fillStyle = '#000';
+  state.maskCtx.fillRect(0, 0, state.width, state.height);
+  state.strokeHistory.push({ type: 'clear' });
+  undoBtn.disabled = false;
+  redraw();
 };
 
-// ============ LaMa 推理 ============
-const LAMA_URL='https://huggingface.co/g-ronimo/lama/resolve/main/lama_fp16.onnx';
-const MODEL_CACHE='lama-fp16-v1';
+canvas.addEventListener('pointerdown', e => {
+  if (!state.maskCtx) return;
+  state.drawing = true;
+  canvas.setPointerCapture(e.pointerId);
+  paintAt(e);
+});
+canvas.addEventListener('pointermove', e => { if (state.drawing) paintAt(e); });
+canvas.addEventListener('pointerup', () => state.drawing = false);
+canvas.addEventListener('pointercancel', () => state.drawing = false);
 
-async function loadModelBytes(){
-  // IndexedDB 缓存
-  const cached=await idbGet(MODEL_CACHE);
-  if(cached) return new Uint8Array(cached);
-  setStatus(inpaintStatus,'正在下载 LaMa 模型（约 110 MB，仅首次）…');
-  progressWrap.style.display='block'; progressBar.style.width='0%';
-  const resp=await fetch(LAMA_URL);
-  if(!resp.ok) throw new Error('模型下载失败 HTTP '+resp.status);
-  const reader=resp.body.getReader();
-  const total=+(resp.headers.get('Content-Length')||0);
-  const chunks=[]; let received=0;
-  while(true){
-    const {done,value}=await reader.read(); if(done)break;
-    chunks.push(value); received+=value.length;
-    if(total) progressBar.style.width=Math.round(received/total*100)+'%';
+function getPoint(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) * (state.width / r.width),
+    y: (e.clientY - r.top) * (state.height / r.height),
+  };
+}
+function paintAt(e) {
+  const p = getPoint(e);
+  state.strokeHistory.push({ x: p.x, y: p.y, size: state.brushSize, mode: state.mode });
+  undoBtn.disabled = false;
+  drawMaskDot(p.x, p.y, state.brushSize, state.mode);
+  redraw();
+}
+function drawMaskDot(x, y, size, mode) {
+  const c = state.maskCtx;
+  c.save();
+  c.fillStyle = mode === 'brush' ? '#fff' : '#000';
+  c.beginPath();
+  c.arc(x, y, size / 2, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+}
+function redraw() {
+  if (!state.img) return;
+  ctx.clearRect(0, 0, state.width, state.height);
+  ctx.drawImage(state.img, 0, 0);
+  if (!state.maskCtx) return;
+  const md = state.maskCtx.getImageData(0, 0, state.width, state.height).data;
+  const ov = ctx.getImageData(0, 0, state.width, state.height);
+  const od = ov.data;
+  for (let i = 0; i < md.length; i += 4) {
+    if (md[i] > 128) {
+      od[i] = 255; od[i + 1] = 60; od[i + 2] = 60;
+      od[i + 3] = Math.max(od[i + 3], 110);
+    }
   }
-  const bytes=new Uint8Array(received); let off=0;
-  for(const c of chunks){bytes.set(c,off);off+=c.length}
-  await idbSet(MODEL_CACHE, bytes.buffer);
-  progressWrap.style.display='none';
+  ctx.putImageData(ov, 0, 0);
+}
+undoBtn.onclick = () => {
+  const last = state.strokeHistory.pop();
+  if (!last) return;
+  state.maskCtx.fillStyle = '#000';
+  state.maskCtx.fillRect(0, 0, state.width, state.height);
+  for (const s of state.strokeHistory) {
+    if (s.type === 'clear') {
+      state.maskCtx.fillStyle = '#000';
+      state.maskCtx.fillRect(0, 0, state.width, state.height);
+    } else {
+      drawMaskDot(s.x, s.y, s.size, s.mode);
+    }
+  }
+  redraw();
+  undoBtn.disabled = state.strokeHistory.length === 0;
+};
+
+/* ========== 快速采样修复（零依赖） ========== */
+fastBtn.onclick = async () => {
+  if (state.tainted) return setStatus(inpaintStatus, 'Canvas 已被跨域污染，无法读取像素。', 'err');
+  fastBtn.disabled = true; lamaBtn.disabled = true;
+  setStatus(inpaintStatus, '正在执行快速采样修复…');
+  try {
+    const w = state.width, h = state.height;
+    const src = ctx.getImageData(0, 0, w, h);
+    const sd = src.data;
+    const mask = state.maskCtx.getImageData(0, 0, w, h).data;
+
+    const marked = [];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (mask[i] > 128) marked.push({ x, y });
+    }
+    if (marked.length === 0) throw new Error('请先用画笔标记水印区域');
+
+    const out = new Uint8ClampedArray(sd);
+    const radius = Math.max(12, Math.round(Math.sqrt(marked.length) / 4));
+    for (let i = 0; i < marked.length; i++) {
+      const { x, y } = marked[i];
+      let r = 0, g = 0, b = 0, c = 0;
+      for (let ring = 2; ring <= radius && c < 12; ring++) {
+        for (let a = 0; a < 24 && c < 12; a++) {
+          const ang = (a / 24) * Math.PI * 2;
+          const sx = Math.round(x + Math.cos(ang) * ring);
+          const sy = Math.round(y + Math.sin(ang) * ring);
+          if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
+          const si = (sy * w + sx) * 4;
+          if (mask[si] > 128) continue;
+          r += sd[si]; g += sd[si + 1]; b += sd[si + 2]; c++;
+        }
+      }
+      const oi = (y * w + x) * 4;
+      if (c > 0) { out[oi] = r / c; out[oi + 1] = g / c; out[oi + 2] = b / c; }
+      else { out[oi] = 128; out[oi + 1] = 128; out[oi + 2] = 128; }
+      if (i % 800 === 0) {
+        setStatus(inpaintStatus, '修复中… ' + Math.round((i / marked.length) * 100) + '%');
+        await sleep(0);
+      }
+    }
+
+    ctx.putImageData(new ImageData(out, w, h), 0, 0);
+    state.img = await createImageBitmap(canvas);
+    state.maskCtx.fillStyle = '#000';
+    state.maskCtx.fillRect(0, 0, w, h);
+    state.strokeHistory = [];
+    setStatus(inpaintStatus, '快速采样修复完成（' + marked.length.toLocaleString() + ' px）。', 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus(inpaintStatus, '修复失败：' + err.message, 'err');
+  } finally {
+    fastBtn.disabled = false; lamaBtn.disabled = false;
+  }
+};
+
+/* ========== LaMa（懒加载 ORT + 模型） ========== */
+// 若此 URL 失效，替换为你自己的 LaMa ONNX 模型地址（输入 [1,4,H,W]，输出 [1,3,H,W]）
+const LAMA_URL = 'https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx';
+const LAMA_CACHE = 'lama-model-v1';
+
+let lamaSession = null;
+
+async function fetchModelWithProgress(url) {
+  if (typeof caches !== 'undefined') {
+    try {
+      const cache = await caches.open(LAMA_CACHE);
+      const hit = await cache.match(url);
+      if (hit) {
+        setStatus(inpaintStatus, '从缓存读取模型…');
+        return new Uint8Array(await hit.arrayBuffer());
+      }
+    } catch (e) { console.warn('Cache API 不可用', e); }
+  }
+
+  setStatus(inpaintStatus, '正在下载 LaMa 模型（首次较大，请耐心等待）…');
+  progressWrap.style.display = 'block';
+  progressBar.style.width = '0%';
+
+  const resp = await fetch(url, { mode: 'cors' });
+  if (!resp.ok) throw new Error('模型下载失败 HTTP ' + resp.status);
+
+  const total = +(resp.headers.get('Content-Length') || 0);
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total) progressBar.style.width = Math.round(received / total * 100) + '%';
+  }
+  const bytes = new Uint8Array(received);
+  let off = 0;
+  for (const c of chunks) { bytes.set(c, off); off += c.length; }
+
+  if (typeof caches !== 'undefined') {
+    try {
+      const cache = await caches.open(LAMA_CACHE);
+      await cache.put(url, new Response(bytes.slice().buffer, { headers: { 'Content-Type': 'application/octet-stream' } }));
+    } catch (e) { console.warn('写入缓存失败', e); }
+  }
+  progressWrap.style.display = 'none';
   return bytes;
 }
 
-async function ensureLama(){
-  if(state.lamaSession) return state.lamaSession;
-  if(state.lamaLoading){ while(state.lamaLoading) await sleep(200); return state.lamaSession; }
-  state.lamaLoading=true;
-  try{
-    const bytes=await loadModelBytes();
-    setStatus(inpaintStatus,'正在初始化推理会话…');
-    let session;
-    try{
-      session=await ort.InferenceSession.create(bytes,{executionProviders:['webgpu','wasm']});
-    }catch(e){
-      console.warn('WebGPU 初始化失败，回退 WASM',e);
-      session=await ort.InferenceSession.create(bytes,{executionProviders:['wasm']});
-    }
-    state.lamaSession=session;
-    return session;
-  }finally{ state.lamaLoading=false; }
+async function ensureLama() {
+  if (lamaSession) return lamaSession;
+  const ort = await loadOrt();
+  const bytes = await fetchModelWithProgress(LAMA_URL);
+  setStatus(inpaintStatus, '正在初始化推理会话…');
+  lamaSession = await ort.InferenceSession.create(bytes, {
+    executionProviders: ['wasm'],
+    graphOptimizationLevel: 'all',
+  });
+  return lamaSession;
 }
 
-async function runLama(){
-  lamaBtn.disabled=true; fastBtn.disabled=true;
-  setStatus(inpaintStatus,'准备 LaMa 推理…');
-  try{
-    const session=await ensureLama();
-    const {width:w,height:h}=state;
-    const srcData=ctx.getImageData(0,0,w,h);
-    const maskData=state.maskCtx.getImageData(0,0,w,h).data;
+lamaBtn.onclick = async () => {
+  if (state.tainted) return setStatus(inpaintStatus, 'Canvas 已被跨域污染，无法读取像素。', 'err');
+  lamaBtn.disabled = true; fastBtn.disabled = true;
+  try {
+    setStatus(inpaintStatus, '准备 LaMa…');
+    const session = await ensureLama();
+    const ort = window.ort;
 
-    // 收集标记区域
-    let marked=0;
-    for(let i=0;i<maskData.length;i+=4) if(maskData[i]>128) marked++;
-    if(marked===0) throw new Error('请先用画笔标记水印区域');
+    const w = state.width, h = state.height;
+    const srcData = ctx.getImageData(0, 0, w, h);
+    const maskData = state.maskCtx.getImageData(0, 0, w, h).data;
 
-    // 分块推理：核心 tile ≤ 512，context margin 向外扩展
-    const TILE=512;
-    const out=ctx.createImageData(w,h);
+    let marked = 0;
+    for (let i = 0; i < maskData.length; i += 4) if (maskData[i] > 128) marked++;
+    if (marked === 0) throw new Error('请先用画笔标记水印区域');
+
+    const TILE = 512;
+    const xs = [], ys = [];
+    for (let x = 0; x < w; x += TILE) xs.push(x);
+    for (let y = 0; y < h; y += TILE) ys.push(y);
+    const totalTiles = xs.length * ys.length;
+    let doneTiles = 0;
+
+    const out = ctx.createImageData(w, h);
     out.data.set(srcData.data);
 
-    const xs=[], ys=[];
-    for(let y=0;y<h;y+=TILE) ys.push(y);
-    for(let x=0;x<w;x+=TILE) xs.push(x);
-    const totalTiles=xs.length*ys.length; let tileIdx=0;
-
-    for(const ty of ys){
-      for(const tx of xs){
-        tileIdx++;
-        setStatus(inpaintStatus,`LaMa 分块推理 ${tileIdx}/${totalTiles}…`);
-        const tw=Math.min(TILE,w-tx), th=Math.min(TILE,h-ty);
-
-        // 构建 4 通道输入：RGB + mask
-        const input=new Float32Array(1*4*th*tw);
-        for(let y=0;y<th;y++)for(let x=0;x<tw;x++){
-          const si=((ty+y)*w+(tx+x))*4, di=(y*tw+x);
-          input[di]=srcData.data[si]/255;
-          input[tww*tw+x]=srcData.data[si+1]/255;
-          input[2*tw*tw+x]=srcData.data[si+2]/255;
-          input[3*tw*tw+x]=maskData[si]>128?1:0;
+    for (const ty of ys) {
+      for (const tx of xs) {
+        doneTiles++;
+        setStatus(inpaintStatus, 'LaMa 分块推理 ' + doneTiles + '/' + totalTiles + '…');
+        const tw = Math.min(TILE, w - tx);
+        const th = Math.min(TILE, h - ty);
+        const plane = tw * th;
+        const input = new Float32Array(4 * plane);
+        for (let y = 0; y < th; y++) {
+          for (let x = 0; x < tw; x++) {
+            const di = y * tw + x;
+            const si = ((ty + y) * w + (tx + x)) * 4;
+            input[di] = srcData.data[si] / 255;
+            input[plane + di] = srcData.data[si + 1] / 255;
+            input[2 * plane + di] = srcData.data[si + 2] / 255;
+            input[3 * plane + di] = maskData[si] > 128 ? 1 : 0;
+          }
         }
 
-        // 拉平为 [1,4,th,tw]
-        const tensor=new ort.Tensor('float32',input,[1,4,th,tw]);
-        let results;
-        try{
-          results=await session.run({input:tensor});
-        }catch(e){
-          // 单块失败时回退 WASM 重建一次
-          console.warn('tile 推理失败，重建 WASM 会话',e);
-          state.lamaSession=null;
-          const s2=await ort.InferenceSession.create(await loadModelBytes(),{executionProviders:['wasm']});
-          state.lamaSession=s2;
-          results=await s2.run({input:tensor});
-        }
-        const od=results.output.data;
-        for(let y=0;y<th;y++)for(let x=0;x<tw;x++){
-          const si=(y*tw+x)*3, di=((ty+y)*w+(tx+x))*4;
-          // 只回填标记区域，未标记像素保持不变，保护原图质量
-          if(maskData[di]>128){
-            out.data[di]=Math.max(0,Math.min(255,od[si]*255));
-            out.data[di+1]=Math.max(0,Math.min(255,od[si+1]*255));
-            out.data[di+2]=Math.max(0,Math.min(255,od[si+2]*255));
+        const tensor = new ort.Tensor('float32', input, [1, 4, th, tw]);
+        const feeds = {};
+        feeds[session.inputNames[0]] = tensor;
+        const results = await session.run(feeds);
+        const od = results[session.outputNames[0]].data;
+
+        for (let y = 0; y < th; y++) {
+          for (let x = 0; x < tw; x++) {
+            const di = ((ty + y) * w + (tx + x)) * 4;
+            if (maskData[di] > 128) {
+              const pi = y * tw + x;
+              out.data[di] = clamp255(od[pi] * 255);
+              out.data[di + 1] = clamp255(od[plane + pi] * 255);
+              out.data[di + 2] = clamp255(od[2 * plane + pi] * 255);
+            }
           }
         }
       }
     }
 
-    ctx.putImageData(out,0,0);
-    state.img=await createImageBitmap(canvas);
-    state.maskCtx.fillStyle='#000'; state.maskCtx.fillRect(0,0,w,h);
-    state.strokeHistory=[];
-    setStatus(inpaintStatus,`LaMa 修复完成，共处理 ${marked.toLocaleString()} 个标记像素。`,'ok');
-  }catch(err){
+    ctx.putImageData(out, 0, 0);
+    state.img = await createImageBitmap(canvas);
+    state.maskCtx.fillStyle = '#000';
+    state.maskCtx.fillRect(0, 0, w, h);
+    state.strokeHistory = [];
+    setStatus(inpaintStatus, 'LaMa 修复完成（' + marked.toLocaleString() + ' px）。', 'ok');
+  } catch (err) {
     console.error(err);
-    setStatus(inpaintStatus,'LaMa 修复失败：'+err.message+'。可尝试“快速采样修复”作为回退。','err');
-  }finally{ lamaBtn.disabled=false; fastBtn.disabled=false; progressWrap.style.display='none'; }
-}
-
-// ============ 快速采样修复 ============
-fastBtn.onclick=async()=>{
-  fastBtn.disabled=true; lamaBtn.disabled=true;
-  setStatus(inpaintStatus,'正在执行快速采样修复…');
-  try{
-    const w=state.width,h=state.height;
-    const src=ctx.getImageData(0,0,w,h); const sd=src.data;
-    const mask=state.maskCtx.getImageData(0,0,w,h).data;
-    const marked=[];
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;if(mask[i]>128)marked.push({x,y})}
-    if(marked.length===0) throw new Error('请先标记水印区域');
-    const out=new Uint8ClampedArray(sd); const radius=Math.max(12,Math.round(Math.sqrt(marked.length)/4));
-    for(let i=0;i<marked.length;i++){
-      const {x,y}=marked[i]; let r=0,g=0,b=0,c=0;
-      for(let ring=2;ring<=radius&&c<12;ring++)for(let a=0;a<24&&c<12;a++){
-        const ang=a/24*Math.PI*2,sx=Math.round(x+Math.cos(ang)*ring),sy=Math.round(y+Math.sin(ang)*ring);
-        if(sx<0||sy<0||sx>=w||sy>=h)continue; const si=(sy*w+sx)*4; if(mask[si]>128)continue;
-        r+=sd[si];g+=sd[si+1];b+=sd[si+2];c++;
-      }
-      const oi=(y*w+x)*4;
-      if(c>0){out[oi]=r/c;out[oi+1]=g/c;out[oi+2]=b/c}else{out[oi]=128;out[oi+1]=128;out[oi+2]=128}
-      if(i%800===0)await sleep(0);
-    }
-    ctx.putImageData(new ImageData(out,w,h),0,0);
-    state.img=await createImageBitmap(canvas);
-    state.maskCtx.fillStyle='#000'; state.maskCtx.fillRect(0,0,w,h);
-    state.strokeHistory=[];
-    setStatus(inpaintStatus,`快速采样修复完成（${marked.length.toLocaleString()} px）。`,'ok');
-  }catch(err){ setStatus(inpaintStatus,'修复失败：'+err.message,'err'); }
-  finally{ fastBtn.disabled=false; lamaBtn.disabled=false; }
+    setStatus(inpaintStatus, 'LaMa 修复失败：' + err.message + '。可改用“快速采样修复”。', 'err');
+  } finally {
+    lamaBtn.disabled = false; fastBtn.disabled = false;
+    progressWrap.style.display = 'none';
+  }
 };
 
-// ============ 清除元数据并导出 ============
-processBtn.onclick=async()=>{
-  processBtn.disabled=true; setStatus(processStatus,'正在重编码为 PNG…');
-  try{
-    const blob=await new Promise(res=>canvas.toBlob(res,'image/png'));
-    if(!blob) throw new Error('toBlob 返回空');
-    state.processedBlob=blob;
-    state.processedFile=new File([blob],'cleaned_'+(state.file?.name.replace(/\.[^.]+$/,'')||'image')+'.png',{type:'image/png'});
-    if(state.outputUrl)URL.revokeObjectURL(state.outputUrl);
-    state.outputUrl=URL.createObjectURL(blob);
-    downloadLink.href=state.outputUrl; downloadLink.download=state.processedFile.name;
-    downloadRow.hidden=false;
-    setStatus(processStatus,`已导出 PNG · ${(blob.size/1024).toFixed(0)} KB。点击“重新检测”验证元数据。`,'ok');
-    verifyBtn.disabled=false;
-  }catch(err){ setStatus(processStatus,'导出失败：'+err.message,'err'); }
-  finally{ processBtn.disabled=false; }
+function clamp255(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+/* ========== 清除元数据并导出 ========== */
+processBtn.onclick = async () => {
+  if (state.tainted) return setStatus(processStatus, 'Canvas 已被跨域污染，无法导出。', 'err');
+  processBtn.disabled = true;
+  setStatus(processStatus, '正在重编码为 PNG…');
+  try {
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+    if (!blob) throw new Error('toBlob 返回空（图片可能过大，内存不足）');
+    state.processedBlob = blob;
+    const base = (state.file && state.file.name ? state.file.name : 'image').replace(/\.[^.]+$/, '');
+    state.processedFile = new File([blob], 'cleaned_' + base + '.png', { type: 'image/png' });
+    if (state.outputUrl) URL.revokeObjectURL(state.outputUrl);
+    state.outputUrl = URL.createObjectURL(blob);
+    downloadLink.href = state.outputUrl;
+    downloadLink.download = state.processedFile.name;
+    downloadRow.hidden = false;
+    setStatus(processStatus, '已导出 PNG · ' + (blob.size / 1024).toFixed(0) + ' KB。点击“重新检测”验证元数据。', 'ok');
+    verifyBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    setStatus(processStatus, '导出失败：' + err.message, 'err');
+  } finally {
+    processBtn.disabled = false;
+  }
 };
 
-verifyBtn.onclick=async()=>{
-  if(!state.processedFile)return;
-  verifyBtn.disabled=true; setStatus(processStatus,'正在重新解析导出文件…');
-  try{
-    state.verifyReport=extractSensitive(await parseFile(state.processedFile));
+verifyBtn.onclick = async () => {
+  if (!state.processedFile) return;
+  verifyBtn.disabled = true;
+  setStatus(processStatus, '正在重新解析导出文件…');
+  try {
+    const tags = await parseFile(state.processedFile);
+    if (tags === null) throw new Error('EXIF 解析器不可用，无法验证。');
+    state.verifyReport = extractSensitive(tags);
     renderReport('verified');
-    setStatus(processStatus,'验证完成。','ok');
-  }catch(err){ setStatus(processStatus,'验证失败：'+err.message,'err'); }
-  finally{ verifyBtn.disabled=false; }
+    setStatus(processStatus, '验证完成。', 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus(processStatus, '验证失败：' + err.message, 'err');
+  } finally {
+    verifyBtn.disabled = false;
+  }
 };
 
-// ============ 报告 ============
-function renderReport(mode){
-  const original=state.originalSensitive||{};
-  const current=mode==='verified'?(state.verifyReport||{}):null;
-  const keys=new Set([...Object.keys(original),...(current?Object.keys(current):[])]);
-  if(keys.size===0){
-    reportEl.innerHTML='<div style="color:var(--ok);font-size:13.5px;padding:12px 0">原图未检测到常见敏感字段。导出的 PNG 同样不携带这些信息。</div>';
+/* ========== 报告渲染 ========== */
+function renderReport(mode) {
+  const original = state.originalSensitive || {};
+  const current = mode === 'verified' ? (state.verifyReport || {}) : null;
+  const keys = new Set([...Object.keys(original), ...(current ? Object.keys(current) : [])]);
+
+  if (keys.size === 0) {
+    reportEl.innerHTML = '<div style="color:var(--ok);font-size:13.5px;padding:12px 0">原图未检测到常见敏感字段。导出的 PNG 同样不携带这些信息。</div>';
     return;
   }
-  let html='';
-  for(const k of keys){
-    const o=original[k], c=current?current[k]:undefined;
-    const had=o!=null&&o!=='', has=c!=null&&c!=='';
-    let badge,detail;
-    if(mode==='original'){
-      badge=had?'<span class="badge badge-present">存在</span>':'<span class="badge badge-empty">原本为空</span>';
-      detail=had?escapeHtml(String(o)):'—';
-    }else{
-      if(had&&!has){badge='<span class="badge badge-removed">已移除</span>';detail=`<s style="color:var(--muted)">${escapeHtml(String(o))}</s> → 无`}
-      else if(had&&has){badge='<span class="badge badge-present">仍存在</span>';detail=escapeHtml(String(c))}
-      else if(!had&&has){badge='<span class="badge badge-warn">新出现</span>';detail=escapeHtml(String(c))}
-      else{badge='<span class="badge badge-empty">原本为空</span>';detail='—'}
+
+  let html = '';
+  for (const k of keys) {
+    const o = original[k], c = current ? current[k] : undefined;
+    const had = o != null && o !== '', has = c != null && c !== '';
+    let badge, detail;
+    if (mode === 'original') {
+      badge = had ? '<span class="badge badge-present">存在</span>' : '<span class="badge badge-empty">原本为空</span>';
+      detail = had ? escapeHtml(String(o)) : '—';
+    } else {
+      if (had && !has) { badge = '<span class="badge badge-removed">已移除</span>'; detail = '<s style="color:var(--muted)">' + escapeHtml(String(o)) + '</s> → 无'; }
+      else if (had && has) { badge = '<span class="badge badge-present">仍存在</span>'; detail = escapeHtml(String(c)); }
+      else if (!had && has) { badge = '<span class="badge badge-warn">新出现</span>'; detail = escapeHtml(String(c)); }
+      else { badge = '<span class="badge badge-empty">原本为空</span>'; detail = '—'; }
     }
-    html+=`<div class="report-item"><div class="report-key">${escapeHtml(k)}</div><div>${badge} ${detail}</div></div>`;
+    html += '<div class="report-item"><div class="report-key">' + escapeHtml(k) + '</div><div>' + badge + ' ' + detail + '</div></div>';
   }
-  if(mode==='verified'){
-    const still=Object.keys(current||{}).filter(k=>current[k]!=null&&current[k]!=='');
-    html=still.length===0
-      ?'<div style="color:var(--ok);font-size:13px;padding:10px 0 6px">✓ 导出文件未检测到任何原图中存在的敏感字段。</div>'+html
-      :`<div style="color:var(--bad);font-size:13px;padding:10px 0 6px">⚠ 仍存在：${still.map(escapeHtml).join('、')}</div>`+html;
+
+  if (mode === 'verified') {
+    const still = Object.keys(current || {}).filter(k => current[k] != null && current[k] !== '');
+    html = still.length === 0
+      ? '<div style="color:var(--ok);font-size:13px;padding:10px 0 6px">✓ 导出文件未检测到任何原图中存在的敏感字段。</div>' + html
+      : '<div style="color:var(--bad);font-size:13px;padding:10px 0 6px">⚠ 仍存在：' + still.map(escapeHtml).join('、') + '</div>' + html;
   }
-  reportEl.innerHTML=html;
+  reportEl.innerHTML = html;
 }
 
-// ============ IndexedDB 简易缓存 ============
-function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('img-tool',1);r.onupgradeneeded=()=>r.result.createObjectStore('models');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
-async function idbGet(k){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('models','readonly');const rq=tx.objectStore('models').get(k);rq.onsuccess=()=>res(rq.result);rq.onerror=()=>rej(rq.error)})}
-async function idbSet(k,v){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('models','readwrite');tx.objectStore('models').put(v,k);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
+/* ========== 预加载 EXIF 解析器（失败不影响主流程） ========== */
+loadExif().catch(() => {});
+
+})();
 </script>
 </body>
 </html>
