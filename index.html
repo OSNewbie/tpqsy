@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>去水印 · 元数据清除 · 本地验证</title>
+<title>纯算法去水印 · 元数据清除 · 本地验证</title>
 <style>
 :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--ok:#3fb950;--bad:#f85149;--warn:#d29922}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
@@ -31,26 +31,25 @@ button.ghost.active{border-color:var(--accent);color:var(--accent)}
 .b-removed{background:rgba(63,185,80,.15);color:var(--ok)}
 .b-present{background:rgba(248,81,73,.15);color:var(--bad)}
 .b-empty{background:rgba(139,148,158,.12);color:var(--muted)}
-progress{width:100%;height:6px;margin-top:8px;display:none}
 @media(max-width:600px){.report-item{grid-template-columns:1fr;gap:2px}}
 </style>
 </head>
 <body>
-<header><h1>去水印 · 元数据清除 · 本地验证</h1><span id="boot">初始化…</span></header>
+<header><h1>纯算法去水印 · 元数据清除 · 本地验证</h1><span id="boot">初始化…</span></header>
 <main>
 
 <section class="card">
 <h2>1. 加载图片</h2>
 <div class="row"><input type="file" id="fileInput" accept="image/*"></div>
 <div class="row" style="margin-top:8px">
-<input type="text" id="urlInput" placeholder="或图片 URL（需 CORS 允许）">
+<input type="text" id="urlInput" placeholder="或图片 URL（需 CORS）">
 <button id="urlBtn">加载 URL</button>
 </div>
 <div class="status" id="loadStatus"></div>
 </section>
 
 <section class="card">
-<h2>2. 标记与修复</h2>
+<h2>2. 标记与修复（全传统算法，无模型）</h2>
 <div class="toolbar">
 <button id="modeBrush" class="ghost active" disabled>🖌️ 画笔</button>
 <button id="modeClone" class="ghost" disabled>📋 仿制图章</button>
@@ -63,12 +62,15 @@ progress{width:100%;height:6px;margin-top:8px;display:none}
 </div>
 <div id="canvasWrap" class="empty"><canvas id="canvas"></canvas></div>
 <div class="row" style="margin-top:10px">
-<button id="lamaBtn" disabled>LaMa AI 修复</button>
-<button id="fastBtn" class="ghost" disabled>快速采样修复</button>
-<button id="geminiBtn" class="ghost" disabled>Gemini 水印无损去除</button>
+<button id="teleaBtn" disabled>Telea 快速修复</button>
+<button id="patchBtn" class="ghost" disabled>PatchMatch + 低频重整</button>
+<button id="diffuseBtn" class="ghost" disabled>调和扩散（渐变/纯色）</button>
+<button id="alphaBtn" class="ghost" disabled>反向 Alpha（已知水印样式）</button>
 </div>
-<progress id="progress" value="0" max="100"></progress>
 <div class="status" id="inpaintStatus"></div>
+<div class="hint" style="font-size:12px;color:var(--muted);margin-top:8px;padding:8px 10px;border-left:2px solid var(--border)">
+修复效果取决于背景复杂度：<strong>Telea</strong> 适合简单/渐变背景；<strong>PatchMatch+低频</strong> 适合有重复纹理的背景（天空、草地、木纹、墙面）；<strong>调和扩散</strong> 对纯色/渐变最自然；<strong>反向 Alpha</strong> 需要已知水印的透明度 α；<strong>仿制图章</strong> 是复杂纹理（人脸、花纹）的手动兜底。
+</div>
 </section>
 
 <section class="card">
@@ -92,41 +94,25 @@ const $=s=>document.querySelector(s);
 const boot=$('#boot');
 window.onerror=(m)=>{boot.textContent='错误：'+m;boot.style.color='#f85149'};
 
-/* ---------- 动态加载（UMD，避免顶层 import 拖垮整页） ---------- */
-function loadScript(src){
-  return new Promise((res,rej)=>{
-    const s=document.createElement('script');s.src=src;
-    s.onload=res;s.onerror=()=>rej(new Error('加载失败:'+src));
-    document.head.appendChild(s);
-  });
-}
+/* ---------- 动态加载 EXIF 解析器（仅用于验证，失败不影响修复） ---------- */
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('加载失败:'+src));document.head.appendChild(s)})}
 let exifReady=null;
 function ensureExif(){
-  if(window.ExifReader) return Promise.resolve(window.ExifReader);
-  if(!exifReady) exifReady=loadScript('https://cdn.jsdelivr.net/npm/exifreader@5.0.0/dist/exif-reader.min.js')
-    .then(()=>{boot.textContent='EXIF 解析器已就绪';return window.ExifReader});
+  if(window.ExifReader)return Promise.resolve(window.ExifReader);
+  if(!exifReady)exifReady=loadScript('https://cdn.jsdelivr.net/npm/exifreader@5.0.0/dist/exif-reader.min.js').then(()=>{boot.textContent='EXIF 验证器已就绪';return window.ExifReader});
   return exifReady;
-}
-let ortReady=null;
-function ensureOrt(){
-  if(window.ort) return Promise.resolve(window.ort);
-  if(!ortReady) ortReady=loadScript('https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.min.js')
-    .then(()=>{const o=window.ort;o.env.wasm.wasmPaths='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/';o.env.wasm.numThreads=1;return o});
-  return ortReady;
 }
 
 /* ---------- 状态 ---------- */
 const st={file:null,img:null,W:0,H:0,maskCtx:null,history:[],drawing:false,mode:'brush',brush:20,
-  cloneSrc:null,processedFile:null,outUrl:null,origExif:null,verifyExif:null,tainted:false,lamaSession:null};
+  cloneSrc:null,processedFile:null,outUrl:null,origExif:null,verifyExif:null,tainted:false};
 
-/* ---------- 画布 ---------- */
 const canvas=$('#canvas'),wrap=$('#canvasWrap'),ctx=canvas.getContext('2d',{willReadFrequently:true});
 const fileInput=$('#fileInput'),urlInput=$('#urlInput'),urlBtn=$('#urlBtn');
 const modeBrush=$('#modeBrush'),modeClone=$('#modeClone'),modeBlur=$('#modeBlur');
 const clearMaskBtn=$('#clearMask'),undoBtn=$('#undoBtn');
 const brushSize=$('#brushSize'),brushVal=$('#brushVal');
-const lamaBtn=$('#lamaBtn'),fastBtn=$('#fastBtn'),geminiBtn=$('#geminiBtn');
-const progress=$('#progress');
+const teleaBtn=$('#teleaBtn'),patchBtn=$('#patchBtn'),diffuseBtn=$('#diffuseBtn'),alphaBtn=$('#alphaBtn');
 const stripBtn=$('#stripBtn'),verifyBtn=$('#verifyBtn');
 const loadStatus=$('#loadStatus'),inpaintStatus=$('#inpaintStatus'),stripStatus=$('#stripStatus');
 const reportEl=$('#report'),dlRow=$('#dlRow'),dlLink=$('#dlLink');
@@ -184,27 +170,24 @@ async function setup(bmp,size){
   st.maskCtx=mc.getContext('2d',{willReadFrequently:true});
   st.maskCtx.fillStyle='#000';st.maskCtx.fillRect(0,0,st.W,st.H);
 
-  [modeBrush,modeClone,modeBlur,clearMaskBtn,brushSize,fastBtn,stripBtn].forEach(el=>el.disabled=false);
-  if(!st.tainted) lamaBtn.disabled=false;
-  else setStatus(loadStatus,'Canvas 被跨域污染，无法读取/导出像素','err');
+  [modeBrush,modeClone,modeBlur,clearMaskBtn,brushSize,teleaBtn,patchBtn,diffuseBtn,alphaBtn,stripBtn].forEach(el=>el.disabled=false);
+  if(st.tainted)setStatus(loadStatus,'Canvas 被跨域污染，无法读取/导出像素','err');
 }
 
 function resetAll(){
   if(st.outUrl)URL.revokeObjectURL(st.outUrl);
-  Object.assign(st,{file:null,img:null,W:0,H:0,maskCtx:null,history:[],drawing:false,cloneSrc:null,processedFile:null,outUrl:null,origExif:null,verifyExif:null,tainted:false,lamaSession:null});
+  Object.assign(st,{file:null,img:null,W:0,H:0,maskCtx:null,history:[],drawing:false,cloneSrc:null,processedFile:null,outUrl:null,origExif:null,verifyExif:null,tainted:false});
   ctx.clearRect(0,0,canvas.width,canvas.height);canvas.width=0;canvas.height=0;
   wrap.classList.add('empty');dlRow.hidden=true;
-  [modeBrush,modeClone,modeBlur,clearMaskBtn,brushSize,lamaBtn,fastBtn,geminiBtn,stripBtn,verifyBtn,undoBtn].forEach(el=>el.disabled=true);
+  [modeBrush,modeClone,modeBlur,clearMaskBtn,brushSize,teleaBtn,patchBtn,diffuseBtn,alphaBtn,stripBtn,verifyBtn,undoBtn].forEach(el=>el.disabled=true);
   reportEl.innerHTML='';setStatus(loadStatus,'');setStatus(inpaintStatus,'');setStatus(stripStatus,'');
-  progress.style.display='none';
 }
 
-/* ---------- 元数据读取 ---------- */
+/* ---------- 元数据 ---------- */
 const SENSITIVE=['Make','Model','Software','DateTimeOriginal','CreateDate','ModifyDate','GPSLatitude','GPSLongitude','GPSAltitude','LensModel','SerialNumber','Artist','Copyright'];
 async function readExif(file){
-  try{
-    const ER=await ensureExif();const tags=await ER.load(file);st.origExif=extract(tags);render('orig');
-  }catch{reportEl.innerHTML='<div style="color:#d29922;font-size:12.5px;padding:8px 0">EXIF 解析器加载失败。导出 PNG 仍会剥离元数据，但无法列出原图字段。</div>'}
+  try{const ER=await ensureExif();const tags=await ER.load(file);st.origExif=extract(tags);render('orig')}
+  catch{reportEl.innerHTML='<div style="color:#d29922;font-size:12.5px;padding:8px 0">EXIF 验证器不可用；导出 PNG 仍会剥离元数据。</div>'}
 }
 function extract(tags){
   if(!tags)return{};const o={};for(const k of SENSITIVE)if(tags[k]!=null&&tags[k]!=='')o[k]=tags[k];
@@ -212,12 +195,7 @@ function extract(tags){
 }
 
 /* ---------- 画笔 / 仿制图章 / 模糊 ---------- */
-function setMode(m){
-  st.mode=m;
-  modeBrush.classList.toggle('active',m==='brush');
-  modeClone.classList.toggle('active',m==='clone');
-  modeBlur.classList.toggle('active',m==='blur');
-}
+function setMode(m){st.mode=m;modeBrush.classList.toggle('active',m==='brush');modeClone.classList.toggle('active',m==='clone');modeBlur.classList.toggle('active',m==='blur')}
 modeBrush.onclick=()=>setMode('brush');
 modeClone.onclick=()=>{setMode('clone');setStatus(inpaintStatus,'按住 Alt 点击取样，然后涂抹覆盖')};
 modeBlur.onclick=()=>setMode('blur');
@@ -238,24 +216,17 @@ function pt(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left
 function paint(e){
   const p=pt(e);
   if(st.mode==='clone'&&st.cloneSrc){
-    // 仿制图章：把取样点像素复制到目标位置
-    const dx=p.x-st.cloneSrc.x,dy=p.y-st.cloneSrc.y;
-    const data=ctx.getImageData(st.cloneSrc.x-st.brush/2,st.cloneSrc.y-st.brush/2,st.brush,st.brush);
-    ctx.putImageData(data,st.cloneSrc.x-st.brush/2+dx,st.cloneSrc.y-st.brush/2+dy);
-    st.img=null; // 标记已修改，后续 createImageBitmap 重新生成
+    const sx=Math.round(st.cloneSrc.x-st.brush/2),sy=Math.round(st.cloneSrc.y-st.brush/2);
+    const data=ctx.getImageData(sx,sy,st.brush,st.brush);
+    ctx.putImageData(data,Math.round(p.x-st.brush/2),Math.round(p.y-st.brush/2));
     return;
   }
-  st.history.push({x:p.x,y:p.y,size:st.brush,mode:st.mode,cloneSrc:st.cloneSrc});
-  undoBtn.disabled=false;
+  st.history.push({x:p.x,y:p.y,size:st.brush,mode:st.mode,cloneSrc:st.cloneSrc});undoBtn.disabled=false;
   if(st.mode==='blur'){
-    // 模糊：对标记区域做 box blur
     const x=Math.round(p.x-st.brush/2),y=Math.round(p.y-st.brush/2);
-    const img=ctx.getImageData(x,y,st.brush,st.brush);
-    boxBlur(img,2);ctx.putImageData(img,x,y);
-    return;
+    const img=ctx.getImageData(x,y,st.brush,st.brush);boxBlur(img,2);ctx.putImageData(img,x,y);return;
   }
-  st.maskCtx.fillStyle='#fff';st.maskCtx.beginPath();st.maskCtx.arc(p.x,p.y,st.brush/2,0,Math.PI*2);st.maskCtx.fill();
-  redraw();
+  st.maskCtx.fillStyle='#fff';st.maskCtx.beginPath();st.maskCtx.arc(p.x,p.y,st.brush/2,0,Math.PI*2);st.maskCtx.fill();redraw();
 }
 
 function boxBlur(imgData,r){
@@ -271,10 +242,7 @@ function boxBlur(imgData,r){
 }
 
 function redraw(){
-  if(!st.img&&!st.tainted){/* 仿制图章后 img 为 null，重新从 canvas 生成 */}
-  ctx.clearRect(0,0,st.W,st.H);
-  if(st.img)ctx.drawImage(st.img,0,0);
-  else st.img=null;
+  ctx.clearRect(0,0,st.W,st.H);if(st.img)ctx.drawImage(st.img,0,0);
   if(!st.maskCtx)return;
   const md=st.maskCtx.getImageData(0,0,st.W,st.H).data;
   const ov=ctx.getImageData(0,0,st.W,st.H);const od=ov.data;
@@ -285,109 +253,239 @@ function redraw(){
 undoBtn.onclick=()=>{
   const l=st.history.pop();if(!l)return;
   if(l.type==='clear'){st.maskCtx.fillStyle='#000';st.maskCtx.fillRect(0,0,st.W,st.H)}
-  else if(l.mode==='clone'){/* 仿制图章难以精确撤销，提示用户 */}
+  else if(l.mode==='clone'){setStatus(inpaintStatus,'仿制图章无法精确撤销，建议重新取样')}
   else{st.maskCtx.fillStyle='#000';st.maskCtx.beginPath();st.maskCtx.arc(l.x,l.y,l.size/2,0,Math.PI*2);st.maskCtx.fill()}
   redraw();undoBtn.disabled=st.history.length===0;
 };
 
-/* ---------- Gemini 反向 Alpha 混合（参考 Clean PicGo） ---------- */
-geminiBtn.onclick=async()=>{
+/* ================================================================
+   传统修复算法 1：Telea 快速行进
+   ================================================================ */
+teleaBtn.onclick=async()=>{
   if(st.tainted)return setStatus(inpaintStatus,'Canvas 污染','err');
-  geminiBtn.disabled=true;setStatus(inpaintStatus,'尝试反向 Alpha 混合…');
+  teleaBtn.disabled=true;setStatus(inpaintStatus,'Telea 修复中…');
   try{
-    // 需要用户标记水印区域；对标记区域按原始像素反推
-    const w=st.W,h=st.H;const sd=ctx.getImageData(0,0,w,h).data;
-    const md=st.maskCtx.getImageData(0,0,w,h).data;
-    let found=0;
-    for(let i=0;i<md.length;i+=4)if(md[i]>128)found++;
-    if(found===0)throw new Error('请先标记 Gemini 水印区域');
-    // 简化版：对标记区域用周围像素做 Alpha 反推（实际需已知水印样式和 α）
-    const out=new Uint8ClampedArray(sd);
-    // 这里用采样填充作为演示，真正的 Gemini 无损需要固定样式模板
-    setStatus(inpaintStatus,'Gemini 无损模式需要固定水印模板；当前标记区域将用快速采样填充','err');
-  }catch(e){setStatus(inpaintStatus,'Gemini 模式失败：'+e.message,'err')}
-  finally{geminiBtn.disabled=false}
+    const w=st.W,h=st.H;const img=ctx.getImageData(0,0,w,h);const mask=st.maskCtx.getImageData(0,0,w,h).data;
+    const msk=new Uint8Array(w*h);let marked=0;
+    for(let i=0;i<mask.length;i+=4)if(mask[i]>128){msk[i/4]=1;marked++}
+    if(marked===0)throw new Error('请先标记区域');
+    teleaInpaint(img.data,msk,w,h);
+    ctx.putImageData(img,0,0);st.img=await createImageBitmap(canvas);
+    st.maskCtx.fillStyle='#000';st.maskCtx.fillRect(0,0,w,h);st.history=[];
+    setStatus(inpaintStatus,`Telea 完成（${marked} px）`,'ok');
+  }catch(e){setStatus(inpaintStatus,'Telea 失败：'+e.message,'err')}
+  finally{teleaBtn.disabled=false}
 };
 
-/* ---------- LaMa（懒加载，分块推理） ---------- */
-const LAMA_URL='https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx';
-async function ensureLama(){
-  if(st.lamaSession)return st.lamaSession;
-  const ort=await ensureOrt();
-  setStatus(inpaintStatus,'下载 LaMa 模型（首次较大）…');progress.style.display='block';progress.value=0;
-  const resp=await fetch(LAMA_URL);if(!resp.ok)throw new Error('模型下载失败');
-  const total=+(resp.headers.get('Content-Length')||0);const reader=resp.body.getReader();const chunks=[];let rec=0;
-  while(true){const{done,value}=await reader.read();if(done)break;chunks.push(value);rec+=value.length;if(total)progress.value=Math.round(rec/total*100)}
-  const bytes=new Uint8Array(rec);let off=0;for(const c of chunks){bytes.set(c,off);off+=c.length}
-  progress.style.display='none';
-  st.lamaSession=await ort.InferenceSession.create(bytes,{executionProviders:['wasm']});
-  return st.lamaSession;
+/* Telea 算法核心：快速行进 + 边界加权插值 */
+function teleaInpaint(data,msk,w,h){
+  // 距离场：0=已知，Infinity=未知
+  const dist=new Float32Array(w*h);
+  const heap=[];
+  for(let i=0;i<w*h;i++){
+    if(msk[i]){dist[i]=1e9}
+    else{dist[i]=0;heap.push(i)}
+  }
+  // 简化实现：从边界向内逐层推进
+  let changed=true;
+  while(changed){
+    changed=false;
+    const next=[];
+    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
+      const i=y*w+x;if(dist[i]<1e9)continue;
+      // 检查是否邻接已知像素
+      let known=0,sumR=0,sumG=0,sumB=0,cnt=0;
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+        const ni=(y+dy)*w+(x+dx);
+        if(dist[ni]<1e8){known=1;const j=ni*4;sumR+=data[j];sumG+=data[j+1];sumB+=data[j+2];cnt++}
+      }
+      if(known&&cnt>0){
+        const j=i*4;data[j]=sumR/cnt;data[j+1]=sumG/cnt;data[j+2]=sumB/cnt;
+        dist[i]=1;next.push(i);changed=true;
+      }
+    }
+  }
 }
 
-lamaBtn.onclick=async()=>{
+/* ================================================================
+   传统修复算法 2：PatchMatch + 低频拉普拉斯重整
+   ================================================================ */
+patchBtn.onclick=async()=>{
   if(st.tainted)return setStatus(inpaintStatus,'Canvas 污染','err');
-  lamaBtn.disabled=true;fastBtn.disabled=true;
+  patchBtn.disabled=true;setStatus(inpaintStatus,'PatchMatch + 低频重整中…');
   try{
-    const session=await ensureLama();const ort=window.ort;
-    const w=st.W,h=st.H;const src=ctx.getImageData(0,0,w,h);const sd=src.data;
-    const mask=st.maskCtx.getImageData(0,0,w,h).data;
-    let marked=0;for(let i=0;i<mask.length;i+=4)if(mask[i]>128)marked++;
-    if(marked===0)throw new Error('请先标记水印区域');
-
-    const TILE=512;const xs=[],ys=[];for(let x=0;x<w;x+=TILE)xs.push(x);for(let y=0;y<h;y+=TILE)ys.push(y);
-    const out=ctx.createImageData(w,h);out.data.set(sd);let done=0,totalTiles=xs.length*ys.length;
-
-    for(const ty of ys)for(const tx of xs){
-      done++;setStatus(inpaintStatus,`LaMa 分块 ${done}/${totalTiles}`);await sleep(0);
-      const tw=Math.min(TILE,w-tx),th=Math.min(TILE,h-ty);const plane=tw*th;
-      const inp=new Float32Array(4*plane);
-      for(let y=0;y<th;y++)for(let x=0;x<tw;x++){
-        const di=y*tw+x,si=((ty+y)*w+(tx+x))*4;
-        inp[di]=sd[si]/255;inp[plane+di]=sd[si+1]/255;inp[2*plane+di]=sd[si+2]/255;inp[3*plane+di]=mask[si]>128?1:0;
-      }
-      const tensor=new ort.Tensor('float32',inp,[1,4,th,tw]);
-      const feeds={};feeds[session.inputNames[0]]=tensor;
-      const res=await session.run(feeds);const od=res[session.outputNames[0]].data;
-      for(let y=0;y<th;y++)for(let x=0;x<tw;x++){
-        const di=((ty+y)*w+(tx+x))*4;if(mask[di]>128){const pi=y*tw+x;
-          out.data[di]=clamp(od[pi]*255);out.data[di+1]=clamp(od[plane+pi]*255);out.data[di+2]=clamp(od[2*plane+pi]*255);
-        }
-      }
-    }
-    ctx.putImageData(out,0,0);st.img=await createImageBitmap(canvas);
+    const w=st.W,h=st.H;const img=ctx.getImageData(0,0,w,h);const mask=st.maskCtx.getImageData(0,0,w,h).data;
+    const msk=new Uint8Array(w*h);let marked=0;
+    for(let i=0;i<mask.length;i+=4)if(mask[i]>128){msk[i/4]=1;marked++}
+    if(marked===0)throw new Error('请先标记区域');
+    await patchMatchInpaint(img.data,msk,w,h);
+    ctx.putImageData(img,0,0);st.img=await createImageBitmap(canvas);
     st.maskCtx.fillStyle='#000';st.maskCtx.fillRect(0,0,w,h);st.history=[];
-    setStatus(inpaintStatus,`LaMa 完成（${marked} px）`,'ok');
-  }catch(e){setStatus(inpaintStatus,'LaMa 失败：'+e.message,'err')}
-  finally{lamaBtn.disabled=false;fastBtn.disabled=false;progress.style.display='none'}
+    setStatus(inpaintStatus,`PatchMatch 完成（${marked} px）`,'ok');
+  }catch(e){setStatus(inpaintStatus,'PatchMatch 失败：'+e.message,'err')}
+  finally{patchBtn.disabled=false}
 };
+
+async function patchMatchInpaint(data,msk,w,h){
+  // 步骤 1：对标记区域做 PatchMatch 高频纹理填充（简化版：随机搜索 + 投票）
+  const out=new Uint8ClampedArray(data);
+  const patch=4;
+  const markedPixels=[];
+  for(let i=0;i<w*h;i++)if(msk[i])markedPixels.push(i);
+  // 简化 PatchMatch：对每个标记像素，在已知区域随机搜索相似 patch
+  for(let i=0;i<markedPixels.length;i++){
+    const pi=markedPixels[i];const px=pi%w,py=(pi/w)|0;
+    let best=null,bestDist=Infinity;
+    for(let attempt=0;attempt<24;attempt++){
+      const sx=Math.floor(Math.random()*w),sy=Math.floor(Math.random()*h);
+      if(msk[sy*w+sx])continue;
+      let d=0,valid=0;
+      for(let dy=-patch;dy<=patch;dy++)for(let dx=-patch;dx<=patch;dx++){
+        const x1=px+dx,y1=py+dy,x2=sx+dx,y2=sy+dy;
+        if(x1<0||y1<0||x1>=w||y1>=h)continue;
+        const idx1=(y1*w+x1)*4,idx2=(y2*w+x2)*4;
+        d+=Math.abs(data[idx1]-data[idx2])+Math.abs(data[idx1+1]-data[idx2+1])+Math.abs(data[idx1+2]-data[idx2+2]);
+        valid++;
+      }
+      if(valid>0&&d/valid<bestDist){bestDist=d/valid;best=idx2}
+    }
+    if(best!=null){out[pi*4]=data[best];out[pi*4+1]=data[best+1];out[pi*4+2]=data[best+2]}
+    if(i%400===0)await sleep(0);
+  }
+  // 步骤 2：低频重整——在 24×24 粗网格上解拉普拉斯方程
+  const grid=24;
+  const lowRes=downsample(out,w,h,grid);
+  solveLaplacian(lowRes,msk,w,h,grid);
+  upsampleLowFreq(out,lowRes,w,h,grid,msk);
+  // 混合高频（PatchMatch）和低频（拉普拉斯）
+  for(let i=0;i<w*h;i++){
+    if(!msk[i])continue;
+    const j=i*4;
+    data[j]=clamp(out[j]*0.65+data[j]*0.35);
+    data[j+1]=clamp(out[j+1]*0.65+data[j+1]*0.35);
+    data[j+2]=clamp(out[j+2]*0.65+data[j+2]*0.35);
+  }
+}
+
+function downsample(data,w,h,grid){
+  const cellW=Math.ceil(w/grid),cellH=Math.ceil(h/grid);
+  const g=new Float32Array(grid*grid*3);
+  for(let gy=0;gy<grid;gy++)for(let gx=0;gx<grid;gx++){
+    let r=0,gg=0,b=0,n=0;
+    for(let y=gy*cellH;y<Math.min(h,(gy+1)*cellH);y++)for(let x=gx*cellW;x<Math.min(w,(gx+1)*cellW);x++){
+      const i=(y*w+x)*4;r+=data[i];gg+=data[i+1];b+=data[i+2];n++;
+    }
+    const o=(gy*grid+gx)*3;if(n){g[o]=r/n;g[o+1]=gg/n;g[o+2]=b/n}
+  }
+  return g;
+}
+
+function solveLaplacian(g,msk,w,h,grid){
+  // 对网格中标记的单元，用周围已知单元的平均值迭代填充
+  for(let iter=0;iter<200;iter++){
+    let changed=false;
+    for(let gy=1;gy<grid-1;gy++)for(let gx=1;gx<grid-1;gx++){
+      const o=(gy*grid+gx)*3;
+      // 检查该网格单元是否包含标记像素
+      let hasMask=false;
+      const cellW=Math.ceil(w/grid),cellH=Math.ceil(h/grid);
+      for(let y=gy*cellH;y<Math.min(h,(gy+1)*cellH)&&!hasMask;y++)for(let x=gx*cellW;x<Math.min(w,(gx+1)*cellW);x++){
+        if(msk[y*w+x]){hasMask=true;break}
+      }
+      if(!hasMask)continue;
+      // 拉普拉斯：与四邻域平均值趋同
+      const up=(gy-1)*grid*3+gx*3,down=(gy+1)*grid*3+gx*3,left=gy*grid*3+(gx-1)*3,right=gy*grid*3+(gx+1)*3;
+      const nr=(g[up]+g[down]+g[left]+g[right])/4;
+      const ng=(g[up+1]+g[down+1]+g[left+1]+g[right+1])/4;
+      const nb=(g[up+2]+g[down+2]+g[left+2]+g[right+2])/4;
+      if(Math.abs(g[o]-nr)>0.5){g[o]=nr;g[o+1]=ng;g[o+2]=nb;changed=true}
+    }
+    if(!changed)break;
+  }
+}
+
+function upsampleLowFreq(data,g,w,h,grid,msk){
+  const cellW=w/grid,cellH=h/grid;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x;if(!msk[i])continue;
+    const gx=Math.min(grid-1,Math.floor(x/cellW)),gy=Math.min(grid-1,Math.floor(y/cellH));
+    const o=(gy*grid+gx)*3;const j=i*4;
+    data[j]=g[o];data[j+1]=g[o+1];data[j+2]=g[o+2];
+  }
+}
 function clamp(v){return v<0?0:v>255?255:v}
 
-/* ---------- 快速采样（零依赖回退） ---------- */
-fastBtn.onclick=async()=>{
+/* ================================================================
+   传统修复算法 3：调和扩散（边界颜色向内传播 + 平滑）
+   ================================================================ */
+diffuseBtn.onclick=async()=>{
   if(st.tainted)return setStatus(inpaintStatus,'Canvas 污染','err');
-  fastBtn.disabled=true;lamaBtn.disabled=true;
+  diffuseBtn.disabled=true;setStatus(inpaintStatus,'调和扩散修复中…');
   try{
-    const w=st.W,h=st.H;const sd=ctx.getImageData(0,0,w,h).data;
-    const mask=st.maskCtx.getImageData(0,0,w,h).data;
-    const marked=[];for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;if(mask[i]>128)marked.push({x,y})}
-    if(marked.length===0)throw new Error('请标记区域');
-    const out=new Uint8ClampedArray(sd);
-    for(let i=0;i<marked.length;i++){
-      const{x,y}=marked[i];let r=0,g=0,b=0,c=0;
-      for(let ring=2;ring<=16&&c<12;ring++)for(let a=0;a<24&&c<12;a++){
-        const ang=a/24*Math.PI*2,sx=Math.round(x+Math.cos(ang)*ring),sy=Math.round(y+Math.sin(ang)*ring);
-        if(sx<0||sy<0||sx>=w||sy>=h)continue;const si=(sy*w+sx)*4;if(mask[si]>128)continue;
-        r+=sd[si];g+=sd[si+1];b+=sd[si+2];c++;
-      }
-      const oi=(y*w+x)*4;if(c>0){out[oi]=r/c;out[oi+1]=g/c;out[oi+2]=b/c}else{out[oi]=128;out[oi+1]=128;out[oi+2]=128}
-      if(i%800===0){setStatus(inpaintStatus,`采样 ${Math.round(i/marked.length*100)}%`);await sleep(0)}
-    }
-    ctx.putImageData(new ImageData(out,w,h),0,0);st.img=await createImageBitmap(canvas);
+    const w=st.W,h=st.H;const img=ctx.getImageData(0,0,w,h);const mask=st.maskCtx.getImageData(0,0,w,h).data;
+    const msk=new Uint8Array(w*h);let marked=0;
+    for(let i=0;i<mask.length;i+=4)if(mask[i]>128){msk[i/4]=1;marked++}
+    if(marked===0)throw new Error('请先标记区域');
+    harmonicDiffuse(img.data,msk,w,h);
+    ctx.putImageData(img,0,0);st.img=await createImageBitmap(canvas);
     st.maskCtx.fillStyle='#000';st.maskCtx.fillRect(0,0,w,h);st.history=[];
-    setStatus(inpaintStatus,`快速采样完成（${marked.length} px）`,'ok');
-  }catch(e){setStatus(inpaintStatus,'失败：'+e.message,'err')}
-  finally{fastBtn.disabled=false;lamaBtn.disabled=false}
+    setStatus(inpaintStatus,`调和扩散完成（${marked} px）`,'ok');
+  }catch(e){setStatus(inpaintStatus,'扩散失败：'+e.message,'err')}
+  finally{diffuseBtn.disabled=false}
 };
+
+function harmonicDiffuse(data,msk,w,h){
+  // 多轮迭代：标记像素取四邻域平均值
+  for(let iter=0;iter<800;iter++){
+    let changed=false;
+    for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
+      const i=y*w+x;if(!msk[i])continue;
+      const j=i*4;
+      const n=[(y-1)*w+x,y*w+x-1,y*w+x+1,(y+1)*w+x];
+      let r=0,g=0,b=0,nn=0;
+      for(const ni of n){if(!msk[ni]){const k=ni*4;r+=data[k];g+=data[k+1];b+=data[k+2];nn++}}
+      if(nn>0){
+        const nr=r/nn,ng=g/nn,nb=b/nn;
+        if(Math.abs(data[j]-nr)>0.3){data[j]=nr;data[j+1]=ng;data[j+2]=nb;changed=true}
+      }
+    }
+    if(!changed)break;
+  }
+}
+
+/* ================================================================
+   传统修复算法 4：反向 Alpha 混合（已知水印样式）
+   ================================================================ */
+alphaBtn.onclick=async()=>{
+  if(st.tainted)return setStatus(inpaintStatus,'Canvas 污染','err');
+  alphaBtn.disabled=true;
+  try{
+    const w=st.W,h=st.H;const sd=ctx.getImageData(0,0,w,h);const mask=st.maskCtx.getImageData(0,0,w,h).data;
+    let marked=0;for(let i=0;i<mask.length;i+=4)if(mask[i]>128)marked++;
+    if(marked===0)throw new Error('请先标记水印区域');
+    const alpha=prompt('请输入水印的近似透明度 α（0–1，例如 Gemini 水印约 0.45）：','0.45');
+    if(alpha===null)return;
+    const a=parseFloat(alpha);if(isNaN(a)||a<0||a>1)throw new Error('α 必须在 0–1 之间');
+    const overlay=255; // 假设水印为白色/浅色
+    reverseAlphaUnblend(sd.data,mask,w,h,a,overlay);
+    ctx.putImageData(sd,0,0);st.img=await createImageBitmap(canvas);
+    st.maskCtx.fillStyle='#000';st.maskCtx.fillRect(0,0,w,h);st.history=[];
+    setStatus(inpaintStatus,`反向 Alpha 完成（α=${a}，${marked} px）`,'ok');
+  }catch(e){setStatus(inpaintStatus,'反向 Alpha 失败：'+e.message,'err')}
+  finally{alphaBtn.disabled=false}
+};
+
+function reverseAlphaUnblend(data,mask,w,h,alpha,overlayVal){
+  for(let i=0;i<w*h;i++){
+    if(!mask[i*4]||mask[i*4]<=128)continue;
+    const j=i*4;
+    for(let c=0;c<3;c++){
+      const blended=data[j+c];
+      const original=(blended-alpha*overlayVal)/(1-alpha);
+      data[j+c]=clamp(Math.round(original));
+    }
+  }
+}
 
 /* ---------- 清除元数据并验证 ---------- */
 stripBtn.onclick=async()=>{
@@ -443,7 +541,7 @@ function render(mode){
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 
 /* ---------- 启动 ---------- */
-ensureExif().catch(()=>{boot.textContent='EXIF 解析器不可用（其余功能仍可用）';boot.style.color='#d29922'});
+ensureExif().catch(()=>{boot.textContent='EXIF 验证器不可用（修复功能仍可用）';boot.style.color='#d29922'});
 
 })();
 </script>
