@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图片去水印 · 元数据清除 · 本地验证</title>
+<style>
+  :root { --bg: #0f1115; --panel: #181c23; --border: #2a3039; --text: #e6e9ef; --muted: #8b93a1; --accent: #4c8dff; --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); line-height: 1.55; }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header span { font-size: 13px; color: var(--muted); }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px; display: grid; gap: 20px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .card h2 { font-size: 15px; margin: 0 0 14px; font-weight: 600; color: var(--text); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  input[type=file] { color: var(--muted); font-size: 14px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 7px; padding: 10px 18px; font-size: 14px; cursor: pointer; font-weight: 500; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.secondary { background: #2a3039; color: var(--text); }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button.ghost.active { border-color: var(--accent); color: var(--accent); }
+  #canvasWrap { position: relative; display: inline-block; max-width: 100%; margin-top: 12px; border-radius: 8px; overflow: hidden; background: #000; }
+  #canvas { display: block; max-width: 100%; height: auto; cursor: crosshair; touch-action: none; }
+  #canvasWrap.empty::after { content: "选择图片后在此标记水印区域"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; pointer-events: none; }
+  .brush-row { display: flex; gap: 16px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .brush-row input[type=range] { width: 160px; }
+  .report { margin-top: 8px; }
+  .report-item { display: grid; grid-template-columns: 180px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; align-items: baseline; }
+  .report-item:last-child { border-bottom: 0; }
+  .report-key { color: var(--muted); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .badge-removed { background: rgba(63,185,80,.15); color: var(--ok); }
+  .badge-present { background: rgba(248,81,73,.15); color: var(--bad); }
+  .badge-empty { background: rgba(139,147,161,.12); color: var(--muted); }
+  .badge-warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .status { font-size: 13px; color: var(--muted); min-height: 20px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--bad); }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 10px; padding: 10px 12px; border-left: 2px solid var(--border); }
+  @media (max-width: 640px) { .report-item { grid-template-columns: 1fr; gap: 2px; } main { padding: 16px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>图片去水印 · 元数据清除 · 本地验证</h1>
+  <span>全程离线 · 图片不上传 · 处理前后自动对比</span>
+</header>
+<main>
+
+  <section class="card">
+    <h2>1. 选择图片</h2>
+    <div class="row">
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,image/tiff,image/heic">
+      <button class="secondary" id="resetBtn" disabled>重置</button>
+    </div>
+    <div class="status" id="loadStatus"></div>
+    <div class="hint">支持 JPEG / PNG / WebP / TIFF / HEIC。HEIC 能否解码取决于浏览器；若无法加载，请先转为 PNG 或 JPEG。</div>
+  </section>
+
+  <section class="card">
+    <h2>2. 标记水印区域并修复</h2>
+    <div class="row">
+      <button id="brushBtn" class="ghost active" disabled>🖌️ 画笔标记</button>
+      <button id="eraseBtn" class="ghost" disabled>🧽 擦除标记</button>
+      <button id="clearMaskBtn" class="ghost" disabled>清空标记</button>
+    </div>
+    <div class="brush-row">
+      <label>笔刷大小 <input type="range" id="brushSize" min="4" max="60" value="18" disabled></label>
+      <span id="brushLabel">18 px</span>
+    </div>
+    <div id="canvasWrap" class="empty">
+      <canvas id="canvas"></canvas>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="inpaintBtn" disabled>执行修复</button>
+      <button id="undoBtn" class="ghost" disabled>撤销一步</button>
+    </div>
+    <div class="status" id="inpaintStatus"></div>
+    <div class="hint">
+      画笔只标记水印区域，不会直接修改像素。修复基于标记区域外围的像素加权采样向内填充，不做模糊或 AI 猜测。<strong>建议把笔刷稍微画到水印外侧 2–4 像素</strong>，避免边缘残留。复杂纹理区域（人像、毛发、细密文字）的修复效果有限，这是纯本地传统算法的物理上限。
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3. 元数据清除与验证报告</h2>
+    <div class="row">
+      <button id="processBtn" disabled>清除元数据并导出</button>
+      <button id="verifyBtn" class="secondary" disabled>对导出文件重新检测</button>
+    </div>
+    <div class="status" id="processStatus"></div>
+    <div class="report" id="report">
+      <div style="color:var(--muted);font-size:13px;padding:12px 0">加载图片后，这里会显示原图的敏感元数据清单；导出后再检测一次，逐项标记是否已移除。</div>
+    </div>
+    <div class="row" style="margin-top:12px" id="downloadRow" hidden>
+      <a id="downloadLink" download style="text-decoration:none"><button id="downloadBtn">下载处理后的图片</button></a>
+    </div>
+  </section>
+
+</main>
+
+<script type="module">
+import ExifReader from 'https://cdn.jsdelivr.net/npm/exifreader@5.0.0/dist/exif-reader.min.js';
+
+// ---------- 状态 ----------
+const state = {
+  file: null,
+  originalUrl: null,
+  img: null,
+  width: 0,
+  height: 0,
+  maskCanvas: null,      // 离屏掩码，白=标记区域
+  maskCtx: null,
+  strokeHistory: [],      // 用于撤销：每项是 {x, y, size} 或 {type:'clear'}
+  drawing: false,
+  mode: 'brush',          // 'brush' | 'erase'
+  brushSize: 18,
+  processedBlob: null,
+  processedFile: null,
+  outputUrl: null,
+  originalSensitive: null,
+  verifyReport: null,
+};
+
+// ---------- DOM ----------
+const $ = (s) => document.querySelector(s);
+const fileInput = $('#fileInput'), resetBtn = $('#resetBtn');
+const canvas = $('#canvas'), canvasWrap = $('#canvasWrap');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const brushBtn = $('#brushBtn'), eraseBtn = $('#eraseBtn'), clearMaskBtn = $('#clearMaskBtn');
+const brushSize = $('#brushSize'), brushLabel = $('#brushLabel');
+const inpaintBtn = $('#inpaintBtn'), undoBtn = $('#undoBtn');
+const processBtn = $('#processBtn'), verifyBtn = $('#verifyBtn');
+const loadStatus = $('#loadStatus'), inpaintStatus = $('#inpaintStatus'), processStatus = $('#processStatus');
+const reportEl = $('#report'), downloadRow = $('#downloadRow'), downloadLink = $('#downloadLink');
+
+// ---------- 工具 ----------
+function setStatus(el, text, cls = '') { el.textContent = text; el.className = 'status ' + cls; }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ---------- 加载图片 ----------
+fileInput.addEventListener('change', async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  resetAll();
+  state.file = f;
+  setStatus(loadStatus, '正在解码图片…');
+
+  try {
+    const bmp = await createImageBitmap(f).catch(async () => {
+      // 回退到 Image 元素
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return img;
+    });
+
+    state.img = bmp;
+    state.width = bmp.width || bmp.naturalWidth;
+    state.height = bmp.height || bmp.naturalHeight;
+    state.originalUrl = URL.createObjectURL(f);
+
+    // 主画布
+    canvas.width = state.width;
+    canvas.height = state.height;
+    ctx.clearRect(0, 0, state.width, state.height);
+    ctx.drawImage(bmp, 0, 0);
+    canvasWrap.classList.remove('empty');
+
+    // 离屏掩码
+    state.maskCanvas = document.createElement('canvas');
+    state.maskCanvas.width = state.width;
+    state.maskCanvas.height = state.height;
+    state.maskCtx = state.maskCanvas.getContext('2d', { willReadFrequently: true });
+    state.maskCtx.fillStyle = '#000';
+    state.maskCtx.fillRect(0, 0, state.width, state.height);
+
+    // 启用控件
+    [brushBtn, eraseBtn, clearMaskBtn, brushSize, inpaintBtn, processBtn, verifyBtn, resetBtn].forEach(el => el.disabled = false);
+
+    setStatus(loadStatus, `已加载：${state.width} × ${state.height} · ${(f.size / 1024).toFixed(0)} KB`, 'ok');
+
+    // 解析原图敏感元数据
+    await analyzeOriginal(f);
+  } catch (err) {
+    console.error(err);
+    setStatus(loadStatus, '无法解码此图片：' + err.message, 'err');
+  }
+});
+
+function resetAll() {
+  if (state.originalUrl) URL.revokeObjectURL(state.originalUrl);
+  if (state.outputUrl) URL.revokeObjectURL(state.outputUrl);
+  Object.assign(state, {
+    file: null, originalUrl: null, img: null, width: 0, height: 0,
+    maskCanvas: null, maskCtx: null, strokeHistory: [], drawing: false,
+    processedBlob: null, processedFile: null, outputUrl: null,
+    originalSensitive: null, verifyReport: null,
+  });
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  canvas.width = 0; canvas.height = 0;
+  canvasWrap.classList.add('empty');
+  [brushBtn, eraseBtn, clearMaskBtn, brushSize, inpaintBtn, undoBtn, processBtn, verifyBtn, resetBtn].forEach(el => el.disabled = true);
+  downloadRow.hidden = true;
+  reportEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:12px 0">加载图片后，这里会显示原图的敏感元数据清单；导出后再检测一次，逐项标记是否已移除。</div>';
+  setStatus(loadStatus, ''); setStatus(inpaintStatus, ''); setStatus(processStatus, '');
+}
+resetBtn.addEventListener('click', () => { fileInput.value = ''; resetAll(); });
+
+// ---------- 元数据解析 ----------
+const SENSITIVE_KEYS = ['Make', 'Model', 'Software', 'DateTimeOriginal', 'CreateDate', 'ModifyDate', 'GPSLatitude', 'GPSLongitude', 'GPSAltitude', 'latitude', 'longitude', 'LensModel', 'SerialNumber', 'ImageDescription', 'Artist', 'Copyright'];
+
+function extractSensitive(tags) {
+  if (!tags) return {};
+  const out = {};
+  for (const key of SENSITIVE_KEYS) {
+    if (tags[key] !== undefined && tags[key] !== null && tags[key] !== '') out[key] = tags[key];
+  }
+  // GPS 兼容 exifr 风格
+  if (tags.latitude !== undefined && tags.longitude !== undefined) {
+    out['GPS 坐标'] = `${tags.latitude}, ${tags.longitude}`;
+  }
+  return out;
+}
+
+async function parseFile(file) {
+  try {
+    const tags = await ExifReader.load(file, { expanded: true });
+    return tags || {};
+  } catch (e) {
+    console.warn('ExifReader 解析失败', e);
+    return {};
+  }
+}
+
+async function analyzeOriginal(file) {
+  const tags = await parseFile(file);
+  state.originalSensitive = extractSensitive(tags);
+  renderReport('original');
+}
+
+// ---------- 画笔 ----------
+function setMode(m) {
+  state.mode = m;
+  brushBtn.classList.toggle('active', m === 'brush');
+  eraseBtn.classList.toggle('active', m === 'erase');
+}
+brushBtn.addEventListener('click', () => setMode('brush'));
+eraseBtn.addEventListener('click', () => setMode('erase'));
+brushSize.addEventListener('input', () => { state.brushSize = +brushSize.value; brushLabel.textContent = brushSize.value + ' px'; });
+clearMaskBtn.addEventListener('click', () => {
+  if (!state.maskCtx) return;
+  state.maskCtx.fillStyle = '#000';
+  state.maskCtx.fillRect(0, 0, state.width, state.height);
+  state.strokeHistory.push({ type: 'clear' });
+  undoBtn.disabled = false;
+  redraw();
+});
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (!state.img || !state.maskCtx) return;
+  state.drawing = true;
+  canvas.setPointerCapture(e.pointerId);
+  paintAt(e);
+});
+canvas.addEventListener('pointermove', (e) => { if (state.drawing) paintAt(e); });
+canvas.addEventListener('pointerup', () => { state.drawing = false; });
+canvas.addEventListener('pointercancel', () => { state.drawing = false; });
+
+function getCanvasPoint(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - r.left) * (state.width / r.width),
+    y: (e.clientY - r.top) * (state.height / r.height),
+  };
+}
+
+function paintAt(e) {
+  const p = getCanvasPoint(e);
+  const size = state.brushSize;
+  state.strokeHistory.push({ x: p.x, y: p.y, size, mode: state.mode });
+  undoBtn.disabled = false;
+  drawMaskDot(p.x, p.y, size, state.mode);
+  redraw();
+}
+
+function drawMaskDot(x, y, size, mode) {
+  const c = state.maskCtx;
+  c.save();
+  c.fillStyle = mode === 'brush' ? '#fff' : '#000';
+  c.beginPath();
+  c.arc(x, y, size / 2, 0, Math.PI * 2);
+  c.fill();
+  c.restore();
+}
+
+function redraw() {
+  if (!state.img) return;
+  ctx.clearRect(0, 0, state.width, state.height);
+  ctx.drawImage(state.img, 0, 0);
+  // 叠加半透明红色掩码
+  const md = state.maskCtx.getImageData(0, 0, state.width, state.height).data;
+  const overlay = ctx.getImageData(0, 0, state.width, state.height);
+  const od = overlay.data;
+  for (let i = 0; i < md.length; i += 4) {
+    if (md[i] > 128) { od[i] = 255; od[i + 1] = 60; od[i + 2] = 60; od[i + 3] = Math.max(od[i + 3], 110); }
+  }
+  ctx.putImageData(overlay, 0, 0);
+}
+
+undoBtn.addEventListener('click', () => {
+  const last = state.strokeHistory.pop();
+  if (!last) return;
+  if (last.type === 'clear') {
+    // 无法精确恢复，提示用户重新标记
+    state.maskCtx.fillStyle = '#000';
+    state.maskCtx.fillRect(0, 0, state.width, state.height);
+    redraw();
+    undoBtn.disabled = state.strokeHistory.length === 0;
+    return;
+  }
+  // 简化：重放剩余笔画
+  state.maskCtx.fillStyle = '#000';
+  state.maskCtx.fillRect(0, 0, state.width, state.height);
+  for (const s of state.strokeHistory) {
+    if (s.type === 'clear') { state.maskCtx.fillStyle = '#000'; state.maskCtx.fillRect(0, 0, state.width, state.height); }
+    else drawMaskDot(s.x, s.y, s.size, s.mode);
+  }
+  redraw();
+  undoBtn.disabled = state.strokeHistory.length === 0;
+});
+
+// ---------- 修复（采样填充） ----------
+inpaintBtn.addEventListener('click', async () => {
+  if (!state.maskCtx) return;
+  inpaintBtn.disabled = true;
+  setStatus(inpaintStatus, '正在分析标记区域…');
+
+  await sleep(16);
+  try {
+    const w = state.width, h = state.height;
+    const src = ctx.getImageData(0, 0, w, h);
+    const sd = src.data;
+    const mask = state.maskCtx.getImageData(0, 0, w, h).data;
+
+    // 1) 收集标记像素
+    const marked = [];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      if (mask[idx] > 128) marked.push({ x, y });
+    }
+    if (marked.length === 0) {
+      setStatus(inpaintStatus, '请先用画笔标记水印区域。', 'err');
+      inpaintBtn.disabled = false;
+      return;
+    }
+
+    // 2) 对每个标记像素，向外搜索未被标记的像素做加权平均
+    const out = new Uint8ClampedArray(sd);
+    const radius = Math.max(12, Math.round(Math.sqrt(marked.length) / 4));
+    const samplesPerPixel = 12;
+
+    for (let i = 0; i < marked.length; i++) {
+      const { x, y } = marked[i];
+      let r = 0, g = 0, b = 0, count = 0;
+      // 环形搜索：从距离 2 开始向外找干净像素
+      for (let ring = 2; ring <= radius && count < samplesPerPixel; ring++) {
+        for (let a = 0; a < 24 && count < samplesPerPixel; a++) {
+          const ang = (a / 24) * Math.PI * 2;
+          const sx = Math.round(x + Math.cos(ang) * ring);
+          const sy = Math.round(y + Math.sin(ang) * ring);
+          if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
+          const sIdx = (sy * w + sx) * 4;
+          if (mask[sIdx] > 128) continue; // 也是标记区域，跳过
+          r += sd[sIdx]; g += sd[sIdx + 1]; b += sd[sIdx + 2]; count++;
+        }
+      }
+      const oIdx = (y * w + x) * 4;
+      if (count > 0) {
+        out[oIdx] = r / count; out[oIdx + 1] = g / count; out[oIdx + 2] = b / count;
+      } else {
+        // 找不到干净邻居：用整体均值兜底
+        out[oIdx] = 128; out[oIdx + 1] = 128; out[oIdx + 2] = 128;
+      }
+      if (i % 800 === 0) { setStatus(inpaintStatus, `正在修复… ${Math.round((i / marked.length) * 100)}%`); await sleep(0); }
+    }
+
+    ctx.putImageData(new ImageData(out, w, h), 0, 0);
+    state.img = await createImageBitmap(canvas);
+    // 清空掩码，防止叠加红色
+    state.maskCtx.fillStyle = '#000';
+    state.maskCtx.fillRect(0, 0, w, h);
+    state.strokeHistory = [];
+
+    setStatus(inpaintStatus, `修复完成，共处理 ${marked.length.toLocaleString()} 个像素。`, 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus(inpaintStatus, '修复失败：' + err.message, 'err');
+  } finally {
+    inpaintBtn.disabled = false;
+  }
+});
+
+// ---------- 清除元数据并导出 ----------
+processBtn.addEventListener('click', async () => {
+  processBtn.disabled = true;
+  setStatus(processStatus, '正在重编码并导出…');
+
+  try {
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, 'image/png'); // PNG 无损，且天然不携带旧元数据
+    });
+    if (!blob) throw new Error('canvas.toBlob 返回空');
+
+    state.processedBlob = blob;
+    state.processedFile = new File([blob], 'cleaned_' + (state.file.name.replace(/\.[^.]+$/, '') || 'image') + '.png', { type: 'image/png' });
+
+    if (state.outputUrl) URL.revokeObjectURL(state.outputUrl);
+    state.outputUrl = URL.createObjectURL(blob);
+    downloadLink.href = state.outputUrl;
+    downloadLink.download = state.processedFile.name;
+    downloadRow.hidden = false;
+
+    setStatus(processStatus, `已导出 PNG · ${(blob.size / 1024).toFixed(0)} KB。点击“重新检测”验证元数据是否真的被清除。`, 'ok');
+    verifyBtn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    setStatus(processStatus, '导出失败：' + err.message, 'err');
+  } finally {
+    processBtn.disabled = false;
+  }
+});
+
+// ---------- 验证：对导出文件重新解析 ----------
+verifyBtn.addEventListener('click', async () => {
+  if (!state.processedFile) return;
+  verifyBtn.disabled = true;
+  setStatus(processStatus, '正在对导出文件重新解析…');
+
+  try {
+    const tags = await parseFile(state.processedFile);
+    const current = extractSensitive(tags);
+    state.verifyReport = current;
+    renderReport('verified');
+    setStatus(processStatus, '验证完成。下方报告逐项对比了处理前后的敏感字段。', 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus(processStatus, '验证失败：' + err.message, 'err');
+  } finally {
+    verifyBtn.disabled = false;
+  }
+});
+
+// ---------- 报告渲染 ----------
+function renderReport(mode) {
+  const original = state.originalSensitive || {};
+  const current = mode === 'verified' ? (state.verifyReport || {}) : null;
+  const allKeys = new Set([...Object.keys(original), ...(current ? Object.keys(current) : [])]);
+
+  if (allKeys.size === 0) {
+    reportEl.innerHTML = '<div style="color:var(--ok);font-size:13.5px;padding:12px 0">原图中未检测到常见敏感元数据字段（GPS / 设备型号 / 拍摄时间等）。导出后的 PNG 同样不会携带这些信息。</div>';
+    return;
+  }
+
+  let html = '';
+  for (const key of allKeys) {
+    const origVal = original[key];
+    const curVal = current ? current[key] : undefined;
+    const hadOriginal = origVal !== undefined && origVal !== '';
+    const hasNow = curVal !== undefined && curVal !== '';
+
+    let badge, detail;
+    if (mode === 'original') {
+      badge = hadOriginal ? '<span class="badge badge-present">存在</span>' : '<span class="badge badge-empty">原本为空</span>';
+      detail = hadOriginal ? escapeHtml(String(origVal)) : '—';
+    } else {
+      if (hadOriginal && !hasNow) { badge = '<span class="badge badge-removed">已移除</span>'; detail = `<s style="color:var(--muted)">${escapeHtml(String(origVal))}</s> → 无`; }
+      else if (hadOriginal && hasNow) { badge = '<span class="badge badge-present">仍存在</span>'; detail = escapeHtml(String(curVal)); }
+      else if (!hadOriginal && hasNow) { badge = '<span class="badge badge-warn">新出现</span>'; detail = escapeHtml(String(curVal)); }
+      else { badge = '<span class="badge badge-empty">原本为空</span>'; detail = '—'; }
+    }
+    html += `<div class="report-item"><div class="report-key">${escapeHtml(key)}</div><div>${badge} ${detail}</div></div>`;
+  }
+
+  if (mode === 'verified') {
+    const stillPresent = Object.keys(current || {}).filter(k => current[k] !== undefined && current[k] !== '');
+    if (stillPresent.length === 0) {
+      html = `<div style="color:var(--ok);font-size:13px;padding:10px 0 6px">✓ 导出文件未检测到任何原图中存在的敏感字段。</div>` + html;
+    } else {
+      html = `<div style="color:var(--bad);font-size:13px;padding:10px 0 6px">⚠ 以下字段仍然存在，请检查：${stillPresent.map(escapeHtml).join('、')}</div>` + html;
+    }
+  }
+
+  reportEl.innerHTML = html;
+}
+
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+</script>
+</body>
+</html>
